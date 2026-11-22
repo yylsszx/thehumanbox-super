@@ -184,6 +184,10 @@ pub struct Organism {
     pub religion_id: Option<String>,
     pub degrees: Vec<String>,
     pub tools: BTreeMap<String, u8>,
+    /// Personal gear, slot key ("wep" .. "amu", see `organism::items`)
+    /// → item key. One piece per slot, ratcheted up by rank; pickings come
+    /// from hunting, spoils and the village forge.
+    pub gear: BTreeMap<String, String>,
     /// Goods the land gave this person (clay, salt, ore, spice, ochre, fur), each
     /// held up to `LAND_GOOD_CAP`. They ride caravans between tribes; see
     /// `sim::civ::society::economy::LAND_GOODS`.
@@ -331,6 +335,7 @@ impl Organism {
             religion_id: None,
             degrees: Vec::new(),
             tools: BTreeMap::new(),
+            gear: BTreeMap::new(),
             goods: BTreeMap::new(),
             diseases: Vec::new(),
             disease_immunity: BTreeMap::new(),

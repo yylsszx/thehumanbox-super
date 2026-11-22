@@ -178,6 +178,8 @@ pub(crate) struct OrgSave {
     #[serde(default)]
     pub(super) tools: std::collections::BTreeMap<String, u8>,
     #[serde(default)]
+    pub(super) gear: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
     pub(super) goods: std::collections::BTreeMap<String, u8>,
     #[serde(default)]
     pub(super) diseases: Vec<(String, u64)>,
@@ -374,6 +376,7 @@ pub(super) fn org_to_save(o: &Organism) -> OrgSave {
         religion_id: o.religion_id.clone(),
         degrees: o.degrees.clone(),
         tools: o.tools.clone(),
+        gear: o.gear.clone(),
         goods: o.goods.clone(),
         diseases: o.diseases.clone(),
         disease_immunity: o.disease_immunity.clone(),
@@ -526,6 +529,7 @@ pub(super) fn org_from_save(s: OrgSave, save_version: u32) -> Organism {
         o.religion_id = s.religion_id;
         o.degrees = s.degrees;
         o.tools = s.tools;
+        o.gear = s.gear;
         o.goods = s.goods;
         o.diseases = s.diseases;
         o.disease_immunity = s.disease_immunity;

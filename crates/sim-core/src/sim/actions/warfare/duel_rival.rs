@@ -25,14 +25,28 @@ pub fn apply(ctx: &mut ActionCtx) -> f32 {
         ctx.think("swung and missed");
         return 0.003;
     }
+    // Personal gear (see organism::items): the duellist's weapon adds its
+    // edge, the rival's mitigation blunts it, and a critical strike lands
+    // at 2.2x.
+    let g_me = crate::organism::items::GearStats::of(&ctx.sim.organisms[ctx.idx].gear);
+    let g_foe = crate::organism::items::GearStats::of(&ctx.sim.organisms[ki].gear);
+    let crit = ctx.sim.rng.random::<f32>();
+    let mut blow = 0.08 + g_me.dmg;
+    blow *= 1.0 - g_foe.mitigation;
+    if crit < g_me.crit {
+        blow *= crate::organism::items::CRIT_MULT;
+    }
+    let lifesteal = blow * g_me.lifesteal;
     {
         let o = &mut ctx.sim.organisms[ki];
-        o.health = (o.health - 0.08).max(0.0);
+        o.health = (o.health - blow).max(0.0);
         o.mark_harm(crate::organism::organism::Harm::Fight, ctx.tick);
     }
     {
         let me = &mut ctx.sim.organisms[ctx.idx];
-        me.health = (me.health - 0.04).max(0.0);
+        me.health = (me.health - 0.04 * (1.0 - g_foe.mitigation.min(0.5)) + lifesteal)
+            .max(0.0)
+            .min(1.0);
         me.mark_harm(crate::organism::organism::Harm::Fight, ctx.tick);
     }
     let their = ctx.sim.organisms[ki].lineage_id;

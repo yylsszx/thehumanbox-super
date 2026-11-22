@@ -24,6 +24,7 @@ mod ecology;
 mod dormant;
 mod eras;
 mod feedback;
+mod gear;
 mod movement;
 mod persistence;
 mod strategy;

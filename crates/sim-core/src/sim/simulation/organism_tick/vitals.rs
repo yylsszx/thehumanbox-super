@@ -440,7 +440,10 @@ pub(super) fn shelter_comfort(o: &mut Organism, shelter: f32, roll: impl FnOnce(
         return;
     }
     o.energy = (o.energy + (0.0008 + shelter * 0.0022)).min(1.0);
-    o.health = (o.health + (0.0006 + shelter * 0.0010)).min(1.0);
+    // Gear regeneration (a ring of regeneration, a phoenix feather) rides
+    // the natural recovery (see organism::items).
+    let gear_regen = crate::organism::items::GearStats::of(&o.gear).regen;
+    o.health = (o.health + (0.0006 + shelter * 0.0010 + gear_regen)).min(1.0);
     if o.infection > 0.01 {
         let inf_mult = 0.992 - shelter * 0.006;
         o.infection = (o.infection * inf_mult.max(0.980)).max(0.0);

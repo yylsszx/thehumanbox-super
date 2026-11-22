@@ -18,6 +18,7 @@ use rand::RngExt;
 mod arts;
 mod construction;
 mod disease;
+mod gear;
 #[cfg(test)]
 mod disease_tests;
 #[cfg(test)]
@@ -38,6 +39,7 @@ mod watches;
 
 use arts::*;
 use construction::*;
+use gear::*;
 pub(crate) use construction::{
     construction_capped, construction_site_is_valid, lineage_can_afford_construction,
     reconcile_operational_infrastructure, try_start_building_at, wants_longhouse, wants_manor,
@@ -143,6 +145,9 @@ pub fn tick_civ(sim: &mut Simulation, spatial: Option<&SpatialIndex>) {
         if let Some(spatial) = spatial {
             tick_cross_lineage_knowledge(sim, spatial);
         }
+        // The village forge: smiths slowly equip their lineage's adults
+        // with the era's local pattern (see organism::items).
+        tick_gear_forging(sim);
     }
     if tick.is_multiple_of(180) && tick > 0 {
         tick_building_auras(sim);

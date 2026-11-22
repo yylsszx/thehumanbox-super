@@ -1095,6 +1095,36 @@ impl Simulation {
             self.organisms[oi].log_event(format!("hunted a {} at ({},{})", kind, ax, ay));
             self.organisms[oi].discover("hunt");
             self.organisms[oi].discover("hunting");
+            // Trophy gear: a rare kill yields gear (a wolf-fang pendant, a
+            // bearskin), era-gated by the hunter's lineage (see
+            // organism::items). One draw, taken unconditionally.
+            {
+                let tier = self
+                    .lineage_eras
+                    .get(&self.organisms[oi].lineage_id)
+                    .copied()
+                    .map(|e| crate::organism::items::era_tier(e as u8))
+                    .unwrap_or(0);
+                let _loot_roll = self.rng.random::<f32>();
+                if _loot_roll < 0.04 {
+                    if let Some(def) =
+                        crate::organism::items::roll_item(&mut self.rng, tier)
+                    {
+                        if crate::organism::items::equip(&mut self.organisms[oi].gear, def)
+                            .is_some()
+                        {
+                            let name = self.organisms[oi].name.clone();
+                            push_event(
+                                &mut self.events,
+                                self.tick_count,
+                                "loot",
+                                &name,
+                                &format!("took {} from the kill", def.name),
+                            );
+                        }
+                    }
+                }
+            }
             Organism::remember(&mut self.organisms[oi].food_memory, ax, ay, 0.65, ms);
 
             {

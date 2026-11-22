@@ -313,14 +313,20 @@ pub fn tick_battles(
             let p_d = neuro::neuro_acc(&d_f);
             let (roll_a, var_a) = (rng.random::<f32>(), rng.random::<f32>());
             let (roll_d, var_d) = (rng.random::<f32>(), rng.random::<f32>());
+            // Gear crit draws, also taken unconditionally for the stream.
+            let (crit_a, crit_d) = (rng.random::<f32>(), rng.random::<f32>());
             let a_stance = stance_by_org(ai, &att_stances);
             let d_stance = stance_by_org(di, &def_stances);
+            // Personal gear (see organism::items): the attacker's weapon
+            // adds its edge and the defender's mitigation blunts the blow.
+            let g_a = crate::organism::items::GearStats::of(&organisms[ai].gear);
+            let g_d = crate::organism::items::GearStats::of(&organisms[di].gear);
             // A defender behind a completed wall/field fortification takes
             // reduced damage. This multiplier has to sit on `a_dmg` (the
             // damage dealt *to* the defender); putting it on `d_dmg` made a
             // defensive structure boost the defender's own output by 50%
             // while granting no mitigation at all.
-            let a_dmg = base_dmg
+            let mut a_dmg = base_dmg
                 * damage_multiplier(att_style)
                 * (1.0 + a_bonus)
                 * att_wmul
@@ -329,7 +335,7 @@ pub fn tick_battles(
                 * (0.8 + var_a * 0.4)
                 * if roll_a < p_a { 1.16 } else { 0.0 }
                 * if defender_wall_bonus { 0.65 } else { 1.0 };
-            let d_dmg = base_dmg
+            let mut d_dmg = base_dmg
                 * damage_multiplier(def_style)
                 * (1.0 + d_bonus)
                 * def_wmul
@@ -337,6 +343,23 @@ pub fn tick_battles(
                 * stance_incoming(a_stance)
                 * (0.8 + var_d * 0.4)
                 * if roll_d < p_d { 1.16 } else { 0.0 };
+            // Gear: the weapon's edge rides the hit, the wearer's
+            // mitigation blunts it, and a bowman's counter-party cannot
+            // reach him for the full reply.
+            a_dmg = (a_dmg + g_a.dmg) * (1.0 - g_d.mitigation);
+            d_dmg = (d_dmg + g_d.dmg) * (1.0 - g_a.mitigation);
+            if g_a.ranged && !g_d.ranged {
+                d_dmg *= 0.5;
+            }
+            if g_d.ranged && !g_a.ranged {
+                a_dmg *= 0.5;
+            }
+            if crit_a < g_a.crit {
+                a_dmg *= crate::organism::items::CRIT_MULT;
+            }
+            if crit_d < g_d.crit {
+                d_dmg *= crate::organism::items::CRIT_MULT;
+            }
 
             organisms[di].health = (organisms[di].health - a_dmg).max(0.0);
             organisms[di].mark_harm(crate::organism::organism::Harm::War, tick);
@@ -349,6 +372,30 @@ pub fn tick_battles(
             if organisms[ai].health <= 0.0 && organisms[ai].alive {
                 fall_in_battle(&mut organisms[ai], tick, history);
                 battle.casualties_a += 1;
+            }
+            // Gear: lifesteal heals the wielder for a cut of the damage it
+            // dealt; thorns wound the attacker that landed the blow.
+            if a_dmg > 0.0 && g_a.lifesteal > 0.0 && organisms[ai].alive {
+                organisms[ai].health = (organisms[ai].health + a_dmg * g_a.lifesteal).min(1.0);
+            }
+            if a_dmg > 0.0 && g_d.thorns > 0.0 && organisms[ai].alive {
+                organisms[ai].health = (organisms[ai].health - g_d.thorns).max(0.0);
+                organisms[ai].mark_harm(crate::organism::organism::Harm::War, tick);
+                if organisms[ai].health <= 0.0 && organisms[ai].alive {
+                    fall_in_battle(&mut organisms[ai], tick, history);
+                    battle.casualties_a += 1;
+                }
+            }
+            if d_dmg > 0.0 && g_d.lifesteal > 0.0 && organisms[di].alive {
+                organisms[di].health = (organisms[di].health + d_dmg * g_d.lifesteal).min(1.0);
+            }
+            if d_dmg > 0.0 && g_a.thorns > 0.0 && organisms[di].alive {
+                organisms[di].health = (organisms[di].health - g_a.thorns).max(0.0);
+                organisms[di].mark_harm(crate::organism::organism::Harm::War, tick);
+                if organisms[di].health <= 0.0 && organisms[di].alive {
+                    fall_in_battle(&mut organisms[di], tick, history);
+                    battle.casualties_d += 1;
+                }
             }
         }
 
@@ -429,6 +476,37 @@ pub fn tick_battles(
                 BattleOutcome::DefenderVictory => Some((a_lid.clone(), b_lid.clone())),
                 BattleOutcome::Stalemate => None,
             };
+            // Spoils: the victors strip the fallen, era-gated by their own
+            // lineage (see organism::items). One draw per surviving victor,
+            // taken unconditionally for the stream.
+            let victors: Vec<usize> = match outcome {
+                BattleOutcome::AttackerVictory => att_alive.clone(),
+                BattleOutcome::DefenderVictory => def_alive.clone(),
+                BattleOutcome::Stalemate => Vec::new(),
+            };
+            let victor_era = match outcome {
+                BattleOutcome::DefenderVictory => def_era,
+                _ => att_era,
+            };
+            let tier = crate::organism::items::era_tier(victor_era as u8);
+            for &vi in &victors {
+                let roll = rng.random::<f32>();
+                if !organisms[vi].alive || roll >= 0.06 {
+                    continue;
+                }
+                if let Some(def) = crate::organism::items::roll_item(rng, tier) {
+                    if crate::organism::items::equip(&mut organisms[vi].gear, def).is_some() {
+                        let name = organisms[vi].name.clone();
+                        push_event(
+                            events,
+                            tick,
+                            "loot",
+                            &name,
+                            &format!("stripped {} from the fallen", def.name),
+                        );
+                    }
+                }
+            }
             if let Some((loser_lid, winner_lid)) = loser.filter(|_| !institutions.in_war.contains(&battle.id))
             {
                 let dominance = if outcome == BattleOutcome::AttackerVictory {

@@ -301,6 +301,23 @@ impl Organism {
             } else {
                 None
             },
+            gear: if include_cold && !self.gear.is_empty() {
+                Some(
+                    self.gear
+                        .iter()
+                        .map(|(slot, key)| {
+                            (
+                                slot.clone(),
+                                crate::organism::items::item_def(key)
+                                    .map(|d| d.name.to_string())
+                                    .unwrap_or_else(|| key.clone()),
+                            )
+                        })
+                        .collect(),
+                )
+            } else {
+                None
+            },
             home_furniture: if include_cold && !self.home_furniture.is_empty() {
                 Some(self.home_furniture.clone())
             } else {
@@ -1013,6 +1030,8 @@ pub struct OrgJson {
     pub anchor_events: Option<Vec<(u64, String, f32)>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<HashMap<String, u8>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gear: Option<HashMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub home_furniture: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
