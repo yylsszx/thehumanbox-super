@@ -163,6 +163,8 @@ impl Simulation {
             state.caravans.iter().map(|caravan| caravan.id),
         );
 
+        let atmosphere = crate::sim::world_events::AtmosphereState::build(seed, &grid);
+
         let mut sim = Simulation {
             grid,
             physics,
@@ -253,6 +255,8 @@ impl Simulation {
                 }
             },
             world_seed: seed,
+            geology: crate::sim::world_events::GeologyState::build(seed),
+            atmosphere,
             next_animal_id,
             animal_census: Vec::new(),
             lineage_names: state.lineage_names,

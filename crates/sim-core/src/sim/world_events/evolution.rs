@@ -431,20 +431,9 @@ pub fn tick_world_evolution(
     if tick.is_multiple_of(600) && tick >= 600 {
         grid.tick_forest_dieback(drought_active, rng);
     }
-    // Rare tectonic event: every 30k ticks, flip a coin. On average one
-    // earthquake per ~60k ticks - uncommon enough that organisms can't
-    // build a routine around it, frequent enough that long-running worlds
-    // accumulate a few visible fault scars.
-    if tick.is_multiple_of(30000) && tick >= 30000 && rng.random_bool(0.5) {
-        grid.tick_earthquake(rng);
-        push_event(
-            events,
-            tick,
-            "earthquake",
-            "world",
-            "the ground shudders; a fault line lifts new rock and dry land",
-        );
-    }
+    // Tectonic events moved to `world_events::geology`: plate boundaries now
+    // accumulate real stress and release as full earthquakes (terrain cracks,
+    // organism harm, building damage), replacing this flat coin flip.
 
     for org in organisms.iter_mut() {
         if !org.alive {

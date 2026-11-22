@@ -132,6 +132,7 @@ pub fn tick_weather(
     organisms: &mut [Organism],
     tick: u64,
     season: &str,
+    moisture_supply: f32,
     events: &mut std::collections::VecDeque<crate::sim::simulation::Event>,
     rng: &mut impl Rng,
 ) {
@@ -179,7 +180,10 @@ pub fn tick_weather(
         "scarcity" => 0.2,
         _ => 1.0,
     };
-    if rng.random::<f32>() < RAIN_BASE_PROB * mult {
+    // Geography now matters: the atmosphere's moisture supply scales rain
+    // probability, so windward coasts soak while rain shadows starve
+    // (see `world_events::atmosphere`).
+    if rng.random::<f32>() < RAIN_BASE_PROB * mult * moisture_supply {
         let storm = rng.random::<f32>() < 0.22;
         weather.kind = if storm { 2 } else { 1 };
         weather.start_tick = tick;

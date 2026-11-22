@@ -7,9 +7,11 @@ use crate::world::{
 };
 use rand::{Rng, RngExt};
 
+mod atmosphere;
 mod disasters;
 mod evolution;
 mod fallout;
+mod geology;
 mod heat;
 mod ice;
 mod lava;
@@ -18,9 +20,11 @@ mod log;
 mod tests;
 mod weather;
 
+pub use atmosphere::*;
 pub use disasters::*;
 pub use evolution::*;
 pub use fallout::*;
+pub use geology::*;
 pub use heat::*;
 pub use ice::*;
 pub use lava::*;

@@ -73,6 +73,15 @@ impl Simulation {
 
         let season_str: &str = season;
         let drought_was_active = self.drought.active;
+        // Atmosphere: advect the coarse moisture field and let soaked cells
+        // break into weather. Runs before `tick_weather` so the supply
+        // multiplier reflects the current beat.
+        if self.tick_count.is_multiple_of(crate::sim::world_events::ATMOSPHERE_STEP)
+            && self.tick_count > 0
+        {
+            self.tick_atmosphere();
+        }
+
         tick_drought(
             &mut self.drought,
             &mut self.grid,
@@ -111,6 +120,7 @@ impl Simulation {
             &mut self.organisms,
             self.tick_count,
             season_str,
+            self.atmosphere.supply(),
             &mut self.events,
             &mut self.rng,
         );
@@ -170,6 +180,10 @@ impl Simulation {
             for (x, y) in ignited_fires {
                 self.physics.register_fire(x, y);
             }
+
+            // Deep-time geology rides the same beat: plate stress, hotspot
+            // eruptions and erosion (transient state, private RNG stream).
+            self.tick_geology_engine();
         }
 
         // Drought, flood, and shoreline evolution mutate terrain after a

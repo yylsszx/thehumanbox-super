@@ -77,6 +77,12 @@ pub struct Simulation {
     pub history: History,
     pub drought: DroughtState,
     pub weather: WeatherState,
+    /// Transient tectonics: plate stress, hotspots, erosion (rebuilt from the
+    /// seed on load; never persisted). See `world_events::geology`.
+    pub(crate) geology: crate::sim::world_events::GeologyState,
+    /// Transient coarse moisture field driving geographic rain. See
+    /// `world_events::atmosphere`.
+    pub(crate) atmosphere: crate::sim::world_events::AtmosphereState,
     pub flood_tiles: Vec<(i32, i32, u64)>,
     /// The gods' wards over the land (see `civ::wards`).
     pub wards: Vec<super::civ::wards::Ward>,
@@ -297,6 +303,8 @@ impl Simulation {
             [w0, w1]
         };
 
+        let atmosphere = crate::sim::world_events::AtmosphereState::build(seed, &grid);
+
         Simulation {
             grid,
             physics,
@@ -411,6 +419,8 @@ impl Simulation {
             current_era: "genesis".to_string(),
             sex_words,
             world_seed: seed,
+            geology: crate::sim::world_events::GeologyState::build(seed),
+            atmosphere,
             next_animal_id: 0,
             animal_census: Vec::new(),
             rng,
