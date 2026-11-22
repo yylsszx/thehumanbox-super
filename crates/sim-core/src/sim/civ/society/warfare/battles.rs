@@ -9,6 +9,8 @@ pub struct BattleInstitutions<'a> {
     pub in_war: &'a HashSet<String>,
     /// Forged weapon designs, for the emergent-arsenal damage multiplier.
     pub weapon_registry: &'a [super::armory::EmergentWeapon],
+    /// Invented military techs / warlike ideas, as damage multipliers.
+    pub emergent_combat: &'a HashMap<String, f32>,
 }
 
 /// A person killed in a battle. Battle deaths skip the mortality phase, so
@@ -207,12 +209,20 @@ pub fn tick_battles(
             institutions.weapon_registry,
             battle.attackers.first().map(String::as_str),
             super::armory::armament_tier(att_era),
-        );
+        ) * battle
+            .attackers
+            .first()
+            .and_then(|lid| institutions.emergent_combat.get(lid.as_str()).copied())
+            .unwrap_or(1.0);
         let def_wmul = super::armory::lineage_weapon_multiplier(
             institutions.weapon_registry,
             battle.defenders.first().map(String::as_str),
             super::armory::armament_tier(def_era),
-        );
+        ) * battle
+            .defenders
+            .first()
+            .and_then(|lid| institutions.emergent_combat.get(lid.as_str()).copied())
+            .unwrap_or(1.0);
         let att_policy_bonus = battle
             .attackers
             .first()

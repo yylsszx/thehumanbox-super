@@ -53,11 +53,14 @@ impl Simulation {
         }
     }
 
-    /// How weary of war `lineage` is (0 when not at all).
+    /// How weary of war `lineage` is (0 when not at all). Invented
+    /// war-spirit techs and people-first ideas bend the whole tribe's
+    /// temperament, clamped so an idea never abolishes weariness outright.
     pub(crate) fn war_weariness(&self, lineage: &str) -> f32 {
         self.lineage_war_weariness
             .get(lineage)
             .map_or(0.0, |w| w.weariness)
+            * self.emergent_wear_mul(lineage)
     }
 
     /// A weary tribe often calls off the attack it was about to make: the

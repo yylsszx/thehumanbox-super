@@ -606,6 +606,28 @@ impl Simulation {
                         .collect();
                     obj.insert("armory".to_string(), serde_json::Value::Array(weapons));
                 }
+                // The emergent-civ inventions: techs and ideas a world coined
+                // on its own, per lineage.
+                {
+                    let techs: Vec<serde_json::Value> = self
+                        .emergent_techs
+                        .iter()
+                        .map(|t| {
+                            json!({"lineage": t.lineage, "name": t.name, "gen": t.gen, "desc": t.desc})
+                        })
+                        .collect();
+                    let ideas: Vec<serde_json::Value> = self
+                        .emergent_ideas
+                        .iter()
+                        .map(|i| {
+                            json!({"lineage": i.lineage, "name": i.name, "desc": i.desc})
+                        })
+                        .collect();
+                    obj.insert(
+                        "emergent_civ".to_string(),
+                        json!({"techs": techs, "ideas": ideas}),
+                    );
+                }
                 obj.insert(
                     "lineage_names".to_string(),
                     serde_json::to_value(&self.lineage_names).unwrap(),

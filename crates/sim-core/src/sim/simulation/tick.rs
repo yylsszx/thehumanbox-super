@@ -215,6 +215,24 @@ impl Simulation {
             self.tick_water_depletion();
         }
 
+        // Emergent inventions multiply a lineage's research rate (see
+        // `tech::emergent`), so build the small per-lineage map first.
+        let emergent_research: HashMap<String, f32> = {
+            let mut m = HashMap::default();
+            let mut touched: Vec<String> = self
+                .emergent_techs
+                .iter()
+                .map(|t| t.lineage.clone())
+                .chain(self.emergent_ideas.iter().map(|i| i.lineage.clone()))
+                .collect();
+            touched.sort();
+            touched.dedup();
+            for lid in touched {
+                let mul = self.emergent_research_mul(&lid);
+                m.insert(lid, mul);
+            }
+            m
+        };
         crate::sim::tech_progress::tick_tech_progress(
             self.tick_count,
             &mut self.rng,
@@ -223,8 +241,10 @@ impl Simulation {
             &self.lineage_names,
             &self.buildings,
             &self.governments,
+            &emergent_research,
         );
-
+        // The emergent-civ tick: inventions and ideas on their slow cadences.
+        self.tick_emergent_civ();
         {
             let facts = if self
                 .tick_count
@@ -292,6 +312,24 @@ impl Simulation {
             }
             self.battles.extend(front_battles);
             let in_war = self.war_battle_ids();
+            // Emergent arms multiply battle damage for lineages that
+            // invented military techs or adopted warlike ideas.
+            let emergent_combat: HashMap<String, f32> = {
+                let mut m = HashMap::default();
+                let mut touched: Vec<String> = self
+                    .emergent_techs
+                    .iter()
+                    .map(|t| t.lineage.clone())
+                    .chain(self.emergent_ideas.iter().map(|i| i.lineage.clone()))
+                    .collect();
+                touched.sort();
+                touched.dedup();
+                for lid in touched {
+                    let mul = self.emergent_combat_mul(&lid);
+                    m.insert(lid, mul);
+                }
+                m
+            };
             let standing: Vec<bool> = self.organisms.iter().map(|o| o.alive).collect();
             crate::sim::warfare::tick_battles(
                 self.tick_count,
@@ -309,6 +347,7 @@ impl Simulation {
                     grid: &self.grid,
                     in_war: &in_war,
                     weapon_registry: &self.weapon_registry,
+                    emergent_combat: &emergent_combat,
                 },
             );
             self.record_fallen_leaders(&standing);

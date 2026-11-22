@@ -248,6 +248,10 @@ pub struct SaveState {
     #[serde(default)]
     pub(super) next_weapon_id: u32,
     #[serde(default)]
+    pub(super) emergent_techs: Vec<crate::sim::tech::emergent::EmergentTech>,
+    #[serde(default)]
+    pub(super) emergent_ideas: Vec<crate::sim::tech::emergent::EmergentIdea>,
+    #[serde(default)]
     pub(super) last_immigration_tick: u64,
     #[serde(default)]
     pub(super) settlement_tiers: HashMap<String, u8>,

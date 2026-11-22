@@ -27,6 +27,7 @@ pub fn tick_tech_progress(
     lineage_names: &HashMap<String, String>,
     buildings: &[Building],
     governments: &HashMap<String, Government>,
+    emergent_research: &HashMap<String, f32>,
 ) {
     if tick == 0 || !tick.is_multiple_of(TICK_INTERVAL) {
         return;
@@ -153,7 +154,9 @@ pub fn tick_tech_progress(
             } else {
                 1.0
             };
-            let p = (BASE_RATE * node.discovery_rate * pop_factor * profile.capacity * evidence * boost)
+            // Invented techs multiply the whole tribe's research rate.
+            let emergent = emergent_research.get(lid.as_str()).copied().unwrap_or(1.0);
+            let p = (BASE_RATE * node.discovery_rate * pop_factor * profile.capacity * evidence * boost * emergent)
                 .min(0.85);
             if rng.random::<f32>() >= p {
                 continue;
@@ -1040,6 +1043,7 @@ mod tests {
                 &lineage_names,
                 &buildings,
                 &governments,
+                &HashMap::default(),
             );
             events.clear();
             let known: HashSet<String> = sim
@@ -1125,6 +1129,7 @@ mod tests {
                     &fast.lineage_names,
                     &fast.buildings,
                     &fast.governments,
+                    &HashMap::default(),
                 );
                 tick_tech_progress_reference(
                     tick,

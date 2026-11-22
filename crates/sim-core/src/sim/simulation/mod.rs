@@ -285,6 +285,11 @@ pub struct Simulation {
     pub(crate) weapon_registry: Vec<crate::sim::civ::warfare::EmergentWeapon>,
     pub(crate) next_weapon_id: u32,
     pub(crate) armory_rng: ChaCha8Rng,
+    // The emergent-civ inventions: techs and ideas beyond the static tree
+    // (see `sim::tech::emergent`).
+    pub(crate) emergent_techs: Vec<crate::sim::tech::emergent::EmergentTech>,
+    pub(crate) emergent_ideas: Vec<crate::sim::tech::emergent::EmergentIdea>,
+    pub(crate) emergent_rng: ChaCha8Rng,
     pub(crate) cached_territory: serde_json::Value,
 }
 
@@ -459,6 +464,9 @@ impl Simulation {
             weapon_registry: Vec::new(),
             next_weapon_id: 1,
             armory_rng: ChaCha8Rng::seed_from_u64(seed ^ 0x1b2c_3d4e),
+            emergent_techs: Vec::new(),
+            emergent_ideas: Vec::new(),
+            emergent_rng: ChaCha8Rng::seed_from_u64(seed ^ 0x7e11_0001),
             territory: HashMap::default(),
             tile_owner: HashMap::default(),
             cached_territory: serde_json::Value::Null,
