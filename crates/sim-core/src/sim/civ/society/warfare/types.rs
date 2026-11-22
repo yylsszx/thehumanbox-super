@@ -111,6 +111,13 @@ pub struct Battle {
     pub outcome: Option<BattleOutcome>,
     pub initial_a: u32,
     pub initial_d: u32,
+    /// The attackers' line broke (morale collapse, see `battles`): a routed
+    /// side barely strikes back while it runs. Loaded from old saves as
+    /// false.
+    #[serde(default)]
+    pub routed_a: bool,
+    #[serde(default)]
+    pub routed_d: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

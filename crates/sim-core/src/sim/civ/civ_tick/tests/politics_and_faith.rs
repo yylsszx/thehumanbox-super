@@ -28,6 +28,8 @@ fn autonomous_diplomacy_respects_active_battles_and_keeps_one_treaty() {
         outcome: None,
         initial_a: 1,
         initial_d: 1,
+        routed_a: false,
+        routed_d: false,
     });
 
     sim.tick_count = 800;

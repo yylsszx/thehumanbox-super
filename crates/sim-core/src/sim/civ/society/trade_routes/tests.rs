@@ -464,7 +464,9 @@ fn ongoing_battle(a: &str, b: &str) -> crate::sim::civ::warfare::Battle {
         outcome: None,
         initial_a: 0,
         initial_d: 0,
-    }
+        routed_a: false,
+    routed_d: false,
+}
 }
 
 #[test]

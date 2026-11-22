@@ -567,6 +567,8 @@ impl Simulation {
                 casualties_a: 0,
                 casualties_d: 0,
                 outcome: None,
+                routed_a: false,
+                routed_d: false,
             };
             self.join_allies(&mut battle, wi);
             self.diplomacy.wars[wi].battles.push(id.clone());

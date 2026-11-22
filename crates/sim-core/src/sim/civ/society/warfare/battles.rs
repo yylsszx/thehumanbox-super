@@ -35,6 +35,58 @@ pub const AT_BATTLE: i32 = 25;
 /// Health below which a fighter may leave the battle.
 const WITHDRAW_AT: f32 = 0.25;
 
+// ---- Formation discipline (pwb's ring phalanx / marching column) ----
+
+/// Same-side fighters standing within this many tiles of one another
+/// fight as a formation.
+const FORMATION_RADIUS: f32 = 3.0;
+/// Shoulder-to-shoulder count that saturates the formation bonuses: the
+/// seventh shoulder adds nothing a shield wall has not.
+const COHESION_CAP: f32 = 6.0;
+/// Outgoing damage bonus per shoulder-to-shoulder mate (up to +24%).
+const FORMATION_STRIKE: f32 = 0.04;
+/// Incoming damage the formation covers, per mate (up to 12%).
+const FORMATION_COVER: f32 = 0.02;
+/// A routed side barely strikes back while it runs.
+const ROUTED_STRIKE: f32 = 0.25;
+
+// ---- Battle morale (pwb's army morale) ----
+
+/// Losses a side takes before its morale breaks, before the stiffeners:
+/// cohesion (each full shoulder-to-shoulder line buys 6% more losses)
+/// and the era (a gun line breaks later than a brawl).
+const MORALE_BREAK_BASE: f32 = 0.45;
+const MORALE_COHESION_STIFFEN: f32 = 0.06;
+const MORALE_ERA_STIFFEN: f32 = 0.015;
+/// Fear that floods a broken line, carrying the survivors home through
+/// the flight machinery.
+const ROUT_FEAR: f32 = 0.8;
+
+/// Formation cohesion per fighter: how many same-side mates stand within
+/// `FORMATION_RADIUS` (capped at `COHESION_CAP`).
+pub(super) fn formation_cohesion(here: &[usize], organisms: &[crate::organism::organism::Organism]) -> Vec<f32> {
+    here.iter()
+        .map(|&i| {
+            let (x, y) = (organisms[i].x, organisms[i].y);
+            here.iter()
+                .filter(|&&j| j != i)
+                .filter(|&&j| {
+                    (organisms[j].x - x).abs() + (organisms[j].y - y).abs() <= FORMATION_RADIUS
+                })
+                .count() as f32
+        })
+        .map(|c| c.min(COHESION_CAP))
+        .collect()
+}
+
+/// The loss fraction at which a side's morale breaks: stiffer lines (in
+/// formation) and later eras take more losses before they run.
+pub(super) fn morale_break_threshold(avg_cohesion: f32, era: Era) -> f32 {
+    MORALE_BREAK_BASE
+        + avg_cohesion * MORALE_COHESION_STIFFEN
+        + (era as u8 as f32) * MORALE_ERA_STIFFEN
+}
+
 /// A fighter just wounded below `WITHDRAW_AT` in this exchange may leave the
 /// fight and make for home, instead of fighting on until they fall: the
 /// fearful often, the bold seldom. Each fighter weighs it once, when the wound
@@ -294,6 +346,16 @@ pub fn tick_battles(
                 .unwrap_or(Stance::Advance)
         };
 
+        // Formation discipline (pwb's ring phalanx): fighters of a side
+        // standing shoulder to shoulder fight as a formation. March there
+        // as a column and you arrive as one; straggle in alone and you
+        // fight alone.
+        let cohesion_att = formation_cohesion(&att_here, organisms);
+        let cohesion_def = formation_cohesion(&def_here, organisms);
+
+        let avg_cohesion_att = cohesion_att.iter().sum::<f32>() / att_here.len().max(1) as f32;
+        let avg_cohesion_def = cohesion_def.iter().sum::<f32>() / def_here.len().max(1) as f32;
+
         let pairs = att_here.len().min(def_here.len());
         for k in 0..pairs {
             let ai = att_here[k];
@@ -348,6 +410,27 @@ pub fn tick_battles(
             // reach him for the full reply.
             a_dmg = (a_dmg + g_a.dmg) * (1.0 - g_d.mitigation);
             d_dmg = (d_dmg + g_d.dmg) * (1.0 - g_a.mitigation);
+            // Formation: each shoulder-to-shoulder mate strengthens the
+            // line's strike and covers it against the counter.
+            let coh_a = cohesion_att
+                .get(k)
+                .copied()
+                .unwrap_or(0.0);
+            let coh_d = cohesion_def
+                .get(k % def_here.len().max(1))
+                .copied()
+                .unwrap_or(0.0);
+            a_dmg *= 1.0 + FORMATION_STRIKE * coh_a;
+            a_dmg *= 1.0 - (FORMATION_COVER * coh_d).min(0.12);
+            d_dmg *= 1.0 + FORMATION_STRIKE * coh_d;
+            d_dmg *= 1.0 - (FORMATION_COVER * coh_a).min(0.12);
+            // A routed side barely strikes back while it runs.
+            if battle.routed_a {
+                a_dmg *= ROUTED_STRIKE;
+            }
+            if battle.routed_d {
+                d_dmg *= ROUTED_STRIKE;
+            }
             if g_a.ranged && !g_d.ranged {
                 d_dmg *= 0.5;
             }
@@ -395,6 +478,62 @@ pub fn tick_battles(
                 if organisms[di].health <= 0.0 && organisms[di].alive {
                     fall_in_battle(&mut organisms[di], tick, history);
                     battle.casualties_d += 1;
+                }
+            }
+        }
+
+        // Battle morale (pwb's army morale): losses bleed it, formation
+        // cohesion and the era stiffen it. When it breaks the side routs —
+        // fear floods the line and the flight machinery carries the
+        // survivors home, and a routed side barely strikes back from the
+        // moment it breaks.
+        {
+            let a_loss = battle.casualties_a as f32 / battle.initial_a.max(1) as f32;
+            let d_loss = battle.casualties_d as f32 / battle.initial_d.max(1) as f32;
+            if !battle.routed_a
+                && !att_here.is_empty()
+                && a_loss >= morale_break_threshold(avg_cohesion_att, att_era)
+            {
+                battle.routed_a = true;
+                let name = battle
+                    .attackers
+                    .first()
+                    .map(String::as_str)
+                    .unwrap_or("A tribe");
+                push_event(
+                    events,
+                    tick,
+                    "battle_route",
+                    name,
+                    "the attackers' line broke — the survivors ran",
+                );
+                for &i in &att_alive {
+                    if organisms[i].alive {
+                        organisms[i].fear_level = organisms[i].fear_level.max(ROUT_FEAR);
+                    }
+                }
+            }
+            if !battle.routed_d
+                && !def_here.is_empty()
+                && d_loss >= morale_break_threshold(avg_cohesion_def, def_era)
+            {
+                battle.routed_d = true;
+                let name = battle
+                    .defenders
+                    .first()
+                    .map(String::as_str)
+                    .unwrap_or("A tribe");
+                push_event(
+                    events,
+                    tick,
+                    "battle_route",
+                    name,
+                    "the defenders' line broke — the survivors ran",
+                );
+                for &i in &def_alive {
+                    if organisms[i].alive {
+                        organisms[i].fear_level = organisms[i].fear_level.max(ROUT_FEAR);
+                    }
                 }
             }
         }

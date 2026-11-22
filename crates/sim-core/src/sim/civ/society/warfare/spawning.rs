@@ -171,6 +171,8 @@ pub fn try_spawn_raids(
             outcome: None,
             initial_a,
             initial_d,
+            routed_a: false,
+            routed_d: false,
         };
         already_engaged.insert(a_lid.clone());
         already_engaged.insert(b_lid.clone());
@@ -333,6 +335,8 @@ pub fn try_spawn_border_wars(
                 outcome: None,
                 initial_a,
                 initial_d,
+                routed_a: false,
+                routed_d: false,
             });
             already_engaged.insert(a_lid.clone());
             already_engaged.insert(b_lid.clone());

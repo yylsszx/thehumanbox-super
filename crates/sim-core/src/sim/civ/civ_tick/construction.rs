@@ -2004,6 +2004,8 @@ mod palisade_tests {
             outcome: None,
             initial_a: 1,
             initial_d: 1,
+            routed_a: false,
+            routed_d: false,
         }
     }
 

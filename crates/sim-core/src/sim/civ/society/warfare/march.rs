@@ -10,8 +10,17 @@ use crate::sim::agents::family_outings::chebyshev;
 use crate::sim::simulation::Simulation;
 use crate::sim::world_events::push_event;
 
-/// At most this many attackers of one battle march to it.
-const MARCHERS: usize = 6;
+/// A bigger war fields a bigger column: the marching band scales with
+/// the battle (pwb's army-size discipline — a war is not walked to by a
+/// raiding party's worth of men).
+fn column_for_scale(scale: &super::BattleScale) -> usize {
+    match scale {
+        super::BattleScale::Skirmish | super::BattleScale::Raid => 6,
+        super::BattleScale::Siege => 10,
+        super::BattleScale::Battle => 14,
+        super::BattleScale::War => 18,
+    }
+}
 /// An attacker this close to the battle's place is already there and does not walk.
 const AT_PLACE: i32 = 6;
 
@@ -34,6 +43,9 @@ impl Simulation {
             if !self.grid.get(target.0, target.1).walkable() {
                 continue;
             }
+            // The column this battle walks in: a war marches a wider band
+            // down the roads than a raid.
+            let band_cap = column_for_scale(&battle.scale);
             // Attackers march to the place; defenders hurry there to meet them.
             let mut marched = 0usize;
             for (ids, thought) in [
@@ -42,7 +54,7 @@ impl Simulation {
             ] {
                 let mut side = 0usize;
                 for id in ids {
-                    if side >= MARCHERS {
+                    if side >= band_cap {
                         break;
                     }
                     let Some(&i) = index.get(id) else { continue };

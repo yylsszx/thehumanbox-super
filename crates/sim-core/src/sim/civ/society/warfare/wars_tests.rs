@@ -98,6 +98,8 @@ fn border_battle(attacker: &str, defender: &str, at: (i32, i32), sim: &Simulatio
         casualties_a: 0,
         casualties_d: 0,
         outcome: None,
+        routed_a: false,
+        routed_d: false,
     }
 }
 

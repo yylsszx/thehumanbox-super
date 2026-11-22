@@ -152,7 +152,9 @@ fn opposing_lineages_in_an_unfinished_battle_cannot_negotiate() {
         outcome: None,
         initial_a: 1,
         initial_d: 1,
-    };
+        routed_a: false,
+    routed_d: false,
+};
 
     assert!(has_active_battle_between(
         std::slice::from_ref(&battle),
@@ -341,7 +343,9 @@ fn battle_deaths_are_counted_in_their_year_and_written_into_the_life_story() {
         outcome: None,
         initial_a: 2,
         initial_d: 2,
-    }];
+        routed_a: false,
+    routed_d: false,
+}];
     let lineage_eras = HashMap::default();
     let governments = HashMap::default();
     let mut treaties = Vec::new();
@@ -496,7 +500,9 @@ fn the_badly_wounded_leave_the_battle_alive_and_go_home() {
         outcome: None,
         initial_a: 2,
         initial_d: 2,
-    }];
+        routed_a: false,
+    routed_d: false,
+}];
     let lineage_eras = HashMap::default();
     let governments = HashMap::default();
     let mut treaties = Vec::new();
@@ -566,7 +572,9 @@ fn a_fighter_who_is_not_at_the_battle_is_not_hurt_by_it() {
         outcome: None,
         initial_a: 2,
         initial_d: 2,
-    }];
+        routed_a: false,
+    routed_d: false,
+}];
     let lineage_eras = HashMap::default();
     let governments = HashMap::default();
     let mut treaties = Vec::new();
@@ -594,4 +602,113 @@ fn a_fighter_who_is_not_at_the_battle_is_not_hurt_by_it() {
     assert!(sim.organisms[1].alive, "the one at home lived");
     assert_eq!(sim.organisms[1].health, 0.03, "and took no wound");
     assert!(!sim.organisms[0].alive, "the one on the field fell");
+}
+
+// ---- Formation discipline and battle morale (pwb's army formations) ----
+
+#[test]
+fn formation_cohesion_counts_shoulder_to_shoulder_mates() {
+    let mut sim = Simulation::new(0xF0_7A11);
+    sim.organisms.truncate(6);
+    for (i, o) in sim.organisms.iter_mut().enumerate() {
+        o.alive = true;
+        o.x = 50.0 + (i % 3) as f32;
+        o.y = 50.0 + (i / 3) as f32;
+    }
+    let here: Vec<usize> = (0..6).collect();
+    let cohesion = formation_cohesion(&here, &sim.organisms);
+    // Six fighters in a 3x2 block: each has five mates within three tiles.
+    for c in &cohesion {
+        assert!((c - 5.0).abs() < 1e-6, "block cohesion: {c}");
+    }
+    // Scattered, each stands alone.
+    for (i, o) in sim.organisms.iter_mut().enumerate() {
+        o.x = 20.0 + (i * 30) as f32;
+    }
+    let cohesion = formation_cohesion(&here, &sim.organisms);
+    for c in &cohesion {
+        assert_eq!(c, &0.0, "scattered fighters fight alone");
+    }
+}
+
+#[test]
+fn morale_breaks_later_for_stiffer_lines_and_later_eras() {
+    let brawl = morale_break_threshold(0.0, Era::PreStone);
+    let phalanx = morale_break_threshold(4.0, Era::PreStone);
+    let gun_line = morale_break_threshold(0.0, Era::Industrial);
+    assert!(brawl < phalanx, "a formed line takes more losses before it runs");
+    assert!(brawl < gun_line, "a later era holds longer");
+    // And the threshold is a plausible loss fraction, not a certainty gate.
+    assert!(brawl > 0.3 && phalanx < 0.8, "{brawl} {phalanx}");
+}
+
+#[test]
+fn a_losing_line_routs_fear_floods_and_the_news_breaks() {
+    // Ten attackers, eight already fallen: past any threshold the line
+    // breaks on this battle tick.
+    let mut sim = Simulation::new(0x3017);
+    sim.organisms.truncate(10);
+    for (i, o) in sim.organisms.iter_mut().enumerate() {
+        o.alive = i < 2; // eight of the ten are dead already
+        o.lineage_id = "river".into();
+        o.x = 50.0 + (i % 5) as f32;
+        o.y = 50.0;
+    }
+    let mut ids: Vec<String> = Vec::new();
+    for o in &sim.organisms {
+        ids.push(o.id.to_string());
+    }
+    let mut battles = vec![Battle {
+        id: "route-test".into(),
+        attackers: vec!["river".into()],
+        defenders: vec!["hill".into()],
+        attacker_orgs: ids,
+        defender_orgs: Vec::new(),
+        scale: BattleScale::Battle,
+        location: (52, 50),
+        started_tick: 0,
+        ended_tick: None,
+        casualties_a: 8,
+        casualties_d: 0,
+        outcome: None,
+        initial_a: 10,
+        initial_d: 0,
+        routed_a: false,
+        routed_d: false,
+    }];
+    let mut events = std::collections::VecDeque::new();
+    let mut rng = <rand_chacha::ChaCha8Rng as SeedableRng>::seed_from_u64(11);
+    tick_battles(
+        5,
+        &mut rng,
+        &mut battles,
+        &mut Vec::new(),
+        &mut sim.organisms,
+        &mut events,
+        &mut sim.history,
+        BattleInstitutions {
+            weapon_registry: &[],
+            emergent_combat: &HashMap::default(),
+            lineage_eras: &HashMap::default(),
+            governments: &HashMap::default(),
+            buildings: &[],
+            field_fortifications: &[],
+            grid: &sim.grid,
+            in_war: &HashSet::default(),
+        },
+    );
+    assert!(battles[0].routed_a, "the losing attackers' line broke");
+    assert!(
+        sim.organisms
+            .iter()
+            .filter(|o| o.alive)
+            .all(|o| o.fear_level >= 0.8),
+        "fear floods the broken line"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e.etype == "battle_route" && e.detail.contains("broke")),
+        "the rout makes the news"
+    );
 }

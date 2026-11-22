@@ -166,6 +166,8 @@ mod tests {
             outcome: None,
             initial_a: 3,
             initial_d: 3,
+            routed_a: false,
+            routed_d: false,
         }
     }
 

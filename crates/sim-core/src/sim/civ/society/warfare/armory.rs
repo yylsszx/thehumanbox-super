@@ -929,7 +929,9 @@ mod tests {
             casualties_d: 3,
             initial_a: 10,
             initial_d: 10,
-            started_tick: 0,
+                        routed_a: false,
+            routed_d: false,
+started_tick: 0,
             ended_tick: Some(sim.tick_count),
             outcome: Some(crate::sim::warfare::BattleOutcome::AttackerVictory),
         });

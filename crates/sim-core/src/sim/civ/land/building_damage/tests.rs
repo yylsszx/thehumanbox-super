@@ -198,6 +198,8 @@ fn flood_storm_and_active_battles_leave_distinct_damage() {
         outcome: None,
         initial_a: 10,
         initial_d: 10,
+        routed_a: false,
+        routed_d: false,
     });
     // Building 900's deterministic storm lane is active on step 12.
     sim.tick_count = 60;
