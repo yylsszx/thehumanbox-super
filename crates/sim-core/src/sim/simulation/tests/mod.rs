@@ -20,6 +20,7 @@ pub(super) fn flatten_test_area(sim: &mut Simulation, cx: i32, cy: i32) {
 mod animals;
 mod determinism;
 mod dispersal;
+mod ecology;
 mod dormant;
 mod eras;
 mod feedback;

@@ -30,6 +30,7 @@ mod carcasses;
 mod census;
 mod flocks;
 mod helpers;
+pub(crate) mod ecology;
 mod herds;
 mod lineage;
 mod memory;
@@ -84,6 +85,10 @@ pub struct Simulation {
     /// Transient coarse moisture field driving geographic rain. See
     /// `world_events::atmosphere`.
     pub(crate) atmosphere: crate::sim::world_events::AtmosphereState,
+    /// Transient ecology: the food web between grass, grazers and
+    /// predators (rebuilt from the seed on load; never persisted). See
+    /// `simulation::ecology`.
+    pub(crate) ecology: crate::sim::simulation::ecology::EcologyState,
     pub flood_tiles: Vec<(i32, i32, u64)>,
     /// The gods' wards over the land (see `civ::wards`).
     pub wards: Vec<super::civ::wards::Ward>,
@@ -323,6 +328,7 @@ impl Simulation {
         };
 
         let atmosphere = crate::sim::world_events::AtmosphereState::build(seed, &grid);
+        let ecology = crate::sim::simulation::ecology::EcologyState::build(seed);
 
         Simulation {
             grid,
@@ -440,6 +446,7 @@ impl Simulation {
             world_seed: seed,
             geology: crate::sim::world_events::GeologyState::build(seed),
             atmosphere,
+            ecology,
             next_animal_id: 0,
             animal_census: Vec::new(),
             rng,

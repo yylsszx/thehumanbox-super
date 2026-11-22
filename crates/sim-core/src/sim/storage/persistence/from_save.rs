@@ -256,6 +256,7 @@ impl Simulation {
             },
             world_seed: seed,
             geology: crate::sim::world_events::GeologyState::build(seed),
+            ecology: crate::sim::simulation::ecology::EcologyState::build(seed),
             atmosphere,
             next_animal_id,
             animal_census: Vec::new(),

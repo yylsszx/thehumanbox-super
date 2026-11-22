@@ -426,6 +426,10 @@ pub struct Animal {
     pub summoned: bool,
     /// A summoned wolf is out hunting this tick (it is night). Recomputed every tick, not saved.
     pub hunting: bool,
+    /// A starving wild predator with no wild game in reach has turned to
+    /// the village pens as its last hunting ground (set by the ecology
+    /// pass; see simulation::ecology). Recomputed every pass, not saved.
+    pub raiding: bool,
     pub pack_quarry: Option<(usize, f32, f32)>,
 }
 
@@ -464,6 +468,7 @@ impl Animal {
             pen: None,
             summoned: false,
             hunting: false,
+            raiding: false,
             pack_quarry: None,
         }
     }
@@ -531,11 +536,15 @@ impl Animal {
 
         // A fed predator rests and roams instead of stalking. Monsters
         // always stalk, and only people. A summoned pack out at night
-        // stalks people and the livestock in the pens too.
+        // stalks people and the livestock in the pens too, and so does a
+        // starving raider that the ecology pass has sent at the pens.
         let monster = self.kind.monster();
-        if monster || (self.kind.predator() && (self.energy <= PREDATOR_HUNGRY_ENERGY || self.hunting)) {
+        if monster
+            || (self.kind.predator()
+                && (self.energy <= PREDATOR_HUNGRY_ENERGY || self.hunting || self.raiding))
+        {
             let prey: &[(f32, f32)] = if monster { &[] } else { prey_positions };
-            let raid: &[(f32, f32)] = if self.hunting && !monster {
+            let raid: &[(f32, f32)] = if (self.hunting || self.raiding) && !monster {
                 livestock_positions
             } else {
                 &[]

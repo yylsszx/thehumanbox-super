@@ -695,6 +695,14 @@ impl Simulation {
 
         // After the people have chosen their actions, so the market crowd's thoughts and walks show in this tick's frame.
         self.tick_market_crowds();
+        // Ecology: the Lotka-Volterra pass (grass → grazers → predators)
+        // runs just before the animals so this tick's hunters see fresh
+        // raid flags and a fresh kill budget.
+        if self.tick_count > 0
+            && self.tick_count % crate::sim::simulation::ecology::ECOLOGY_STEP == 7
+        {
+            self.tick_ecology();
+        }
         self.tick_animals(&org_idx_by_id);
         self.tick_colonization();
         self.tick_fleet();

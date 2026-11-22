@@ -248,7 +248,16 @@ impl Simulation {
                 oi != pi && okind == pred.kind && (ox - pred.x).abs() + (oy - pred.y).abs() <= PACK_RANGE
             });
             let reach = if packed { PACK_REACH } else { 1.5 };
-            let raid: &[(usize, f32, f32, AnimalKind)] = if pred.hunting { &livestock } else { &[] };
+            // Wild-game kills draw from the ecology pass's kill budget (see
+            // the application loop below): a thinning larder halves it, a
+            // collapsing one shuts the hunt — the conservation window.
+            // Beast raids on the pens are a separate ledger, bounded by
+            // the raider's own hunger instead.
+            // Livestock in pens are raided by a summoned pack out at night,
+            // and by a starving wild raider the ecology pass has sent at
+            // the pens — the rails keep out a fed wolf, not a desperate one.
+            let raid: &[(usize, f32, f32, AnimalKind)] =
+                if pred.hunting || pred.raiding { &livestock } else { &[] };
             let quarry = pred.pack_quarry.and_then(|(qid, _, _)| {
                 prey_positions
                     .iter()
@@ -271,9 +280,34 @@ impl Simulation {
                 }
             }
         }
+        // The ecology pass's kill budget for this window: wild-game kills
+        // consume it (beast raids on pens do not — they are bounded by the
+        // raider's own hunger), and the next ecology pass refills it from
+        // the prey stock.
+        let mut wild_budget = self.ecology.kill_allowance;
         for (pi, vi) in kills {
             if !self.animals[pi].alive || !self.animals[vi].alive {
                 continue;
+            }
+            // A beast raid: a starving raider carried off a village's
+            // livestock — ecology pressing on the civilisations.
+            if self.animals[vi].is_kept() && self.animals[pi].raiding {
+                let raider = self.animals[pi].kind;
+                push_event(
+                    &mut self.events,
+                    self.tick_count,
+                    "eco",
+                    "the wilds",
+                    &format!(
+                        "a starving {} broke into a pen and carried off livestock",
+                        raider.name()
+                    ),
+                );
+            } else if wild_budget == 0 {
+                // The conservation window is shut: this kill walks on.
+                continue;
+            } else {
+                wild_budget -= 1;
             }
             let gain = match self.animals[vi].kind {
                 AnimalKind::Rabbit | AnimalKind::Chicken => 0.40,
@@ -292,6 +326,9 @@ impl Simulation {
             });
             self.animals[pi].energy = (self.animals[pi].energy + gain).min(1.0);
         }
+        // Write the leftover budget back so it spans the whole window
+        // between ecology passes instead of refilling every tick.
+        self.ecology.kill_allowance = wild_budget;
 
         let mut tames: Vec<(usize, usize)> = Vec::new();
         for (ai, a) in self.animals.iter().enumerate() {
@@ -935,6 +972,10 @@ impl Simulation {
                         super::wary_game::wariness_in(&self.game_wariness, animal.x, animal.y)
                     };
                     let p = p * (1.0 - super::wary_game::ESCAPE_AT_FULL * wary);
+                    // The ecology pass slackens civilised hunting as the
+                    // wilds thin: the villagers put the bow away rather than
+                    // hunt the last deer (see simulation::ecology).
+                    let p = p * self.ecology.phase.hunting_pressure();
                     if self.rng.random::<f32>() < p {
                         to_catch.push((oi, ai));
                     }
