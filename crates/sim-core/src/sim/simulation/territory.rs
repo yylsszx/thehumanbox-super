@@ -1,4 +1,22 @@
 use super::*;
+use serde_json::json;
+
+/// How often (in ticks) the organic growth pass runs. At the base 120 ms
+/// tick that is a visible creep every 3 seconds; a 40x world redraws its
+/// borders roughly twice a second of real time.
+pub(super) const TERRITORY_GROWTH_STEP: u64 = 25;
+/// Frontier queues stay bounded: past this the freshest candidates wait for
+/// a rebuild rather than piling up.
+const MAX_FRONTIER: usize = 2048;
+/// Growth candidates deferred back to the queue by chance, so fronts creep
+/// unevenly instead of sweeping a perfect circle.
+const DEFER_CHANCE: f32 = 0.35;
+/// Hard ceiling on one lineage's territory, whatever its population.
+const MAX_TERRITORY_ANY: usize = 1600;
+/// The patch a tribe holds before anyone has discovered borders or territory.
+const UNDISCOVERED_CAP: usize = 28;
+/// How fast a dead tribe's borders dissolve: tiles released per pass.
+const DISSOLVE_PER_PASS: usize = 8;
 
 impl Simulation {
     pub(super) fn tick_settlements(&mut self) {
@@ -6,9 +24,14 @@ impl Simulation {
     }
 
     /// Claim all non-water tiles within `radius` of `(cx, cy)` for lineage `lid`.
-    /// Caps each lineage at 400 tiles - evicts tiles farthest from the claimed center.
+    ///
+    /// This is the *explicit* claim: a founding camp, the player's claim-land
+    /// and establish-borders commands, and the settlement-founding seed. It is
+    /// bounded by the disc asked for; the per-lineage size caps live in the
+    /// growth pass, which grows or trims each territory toward what its people
+    /// can actually hold. Newly claimed tiles feed the lineage's frontier
+    /// queue so organic growth continues from the new border.
     pub(crate) fn claim_territory(&mut self, lid: &str, cx: i32, cy: i32, radius: i32) {
-        const MAX_TERRITORY: usize = 400;
         // Pre-compute the tile list so we can update both maps without
         // holding two mutable borrows on `self` simultaneously.
         let mut to_claim: Vec<(i32, i32)> = Vec::new();
@@ -25,56 +48,262 @@ impl Simulation {
                 to_claim.push((tx, ty));
             }
         }
-        if !self.territory.contains_key(lid) {
-            self.territory.insert(lid.to_string().into(), Default::default());
+        let lid_sym: crate::intern::Sym = lid.into();
+        if !self.territory.contains_key(&lid_sym) {
+            self.territory.insert(lid_sym, Default::default());
         }
-        let Some(tiles) = self.territory.get_mut(lid) else {
+        let Some(tiles) = self.territory.get_mut(&lid_sym) else {
             return;
         };
         for p in &to_claim {
             tiles.insert(*p);
         }
-        let mut evicted: Vec<(i32, i32)> = Vec::new();
-        if tiles.len() > MAX_TERRITORY {
-            // The tiles farthest from the claimed center go. Ties at the same
-            // distance are broken by coordinates, never by the order the set
-            // yields them: that order is random per set, so using it would let
-            // the same world evict different tiles from run to run.
-            let mut ranked: Vec<(i32, i32, i32)> = tiles
-                .iter()
-                .map(|&(x, y)| (-((x - cx) * (x - cx) + (y - cy) * (y - cy)), x, y))
-                .collect();
-            // Only the `excess` farthest are wanted: pick them out rather than sorting all.
-            let excess = ranked.len() - MAX_TERRITORY;
-            ranked.select_nth_unstable(excess);
-            ranked.truncate(excess);
-            for (_, x, y) in ranked {
-                tiles.swap_remove(&(x, y));
-                evicted.push((x, y));
-            }
-        }
-        // Update the inverse map. New claims overwrite (most-recent
-        // wins). Evictions only clear the inverse entry if it was
-        // owned by *this* lineage - another lineage may have a more
-        // recent claim on the same tile.
+        // Update the inverse map. New claims overwrite (most-recent wins).
         for p in to_claim {
-            match self.tile_owner.get_mut(&p) {
-                Some(owner) if owner == lid => {}
-                Some(owner) => {
-                    *owner = lid.into();
+            self.tile_owner.insert(p, lid_sym);
+        }
+        // The claimed disc is the new border growth continues from: refill
+        // the frontier queue from it so organic expansion resumes here.
+        self.rebuild_territory_frontier(&lid_sym);
+        self.territory_revision = self.territory_revision.wrapping_add(1);
+    }
+
+    /// One pass of organic territory growth: every living lineage creeps
+    /// outward along its own border toward the land its people can hold, and
+    /// a dead lineage's borders dissolve. Called on the
+    /// `TERRITORY_GROWTH_STEP` cadence from the main tick.
+    pub(super) fn tick_territory_growth(&mut self) {
+        // Per-lineage census: people alive, and whether anyone has the
+        // borders/territory discovery (they know where the tribe ends).
+        let mut census: HashMap<crate::intern::Sym, (u32, bool)> = HashMap::default();
+        for org in self.organisms.iter().filter(|o| o.alive) {
+            let e = census.entry(org.lineage_id).or_default();
+            e.0 += 1;
+            e.1 |= org.discoveries.has(Hot::Territory) || org.discoveries.has(Hot::Borders);
+        }
+        // Sorted ids: the pass is deterministic run to run.
+        let mut lids: Vec<crate::intern::Sym> = self.territory.keys().cloned().collect();
+        lids.sort_unstable_by(|a, b| a.as_str().cmp(b.as_str()));
+        for lid in lids {
+            let (pop, has_borders) = census.get(&lid).copied().unwrap_or((0, false));
+            let len = self.territory.get(&lid).map_or(0, |s| s.len());
+            if pop == 0 {
+                // The tribe is gone: its borders dissolve slowly, the
+                // farthest marches first, until nothing is left.
+                if len > 0 {
+                    self.evict_territory_farthest(&lid, DISSOLVE_PER_PASS.min(len));
                 }
+                continue;
+            }
+            let cap = if has_borders {
+                (24 + pop as usize * 6).min(MAX_TERRITORY_ANY)
+            } else {
+                UNDISCOVERED_CAP
+            };
+            if len > cap {
+                // The people can no longer hold this much land: let go of
+                // the farthest marches.
+                self.evict_territory_farthest(&lid, (len - cap).min(24));
+            } else if len < cap {
+                let want = 1 + pop as usize / 12;
+                self.grow_territory(&lid, want);
+            }
+        }
+    }
+
+    /// Grow `lid`'s territory by up to `want` tiles, popping unowned
+    /// candidates off its frontier queue. Candidates may be deferred back
+    /// (see `DEFER_CHANCE`) so the border creeps unevenly, the way WorldBox
+    /// borders do, rather than sweeping a perfect circle.
+    fn grow_territory(&mut self, lid: &crate::intern::Sym, want: usize) {
+        use rand::RngExt;
+        let mut grown = 0usize;
+        let mut attempts = 0usize;
+        let max_attempts = want * 4 + 8;
+        while grown < want && attempts < max_attempts {
+            attempts += 1;
+            // Frontiers run dry: refill from the current border before
+            // giving up on this pass.
+            let candidate = match self.territory_frontiers.get_mut(lid).and_then(|q| q.pop_front()) {
+                Some(c) => c,
                 None => {
-                    self.tile_owner.insert(p, lid.into());
+                    self.rebuild_territory_frontier(lid);
+                    match self.territory_frontiers.get_mut(lid).and_then(|q| q.pop_front()) {
+                        Some(c) => c,
+                        None => break, // sealed: water, map edge or neighbours all round
+                    }
+                }
+            };
+            // Validate the candidate against the world as it is now.
+            if !crate::world::grid::WorldGrid::in_bounds(candidate.0, candidate.1) {
+                continue;
+            }
+            if matches!(self.grid.get(candidate.0, candidate.1), Tile::Water | Tile::Void) {
+                continue;
+            }
+            match self.tile_owner.get(&candidate) {
+                Some(owner) if *owner == *lid => continue, // already mine
+                Some(_) => continue,                       // another tribe's sovereign land: conquest's job
+                None => {}
+            }
+            // Organic front: some candidates are deferred so the creep is
+            // uneven. Deferred tiles go to the back of the queue.
+            if self.territory_rng.random::<f32>() < DEFER_CHANCE {
+                if let Some(q) = self.territory_frontiers.get_mut(lid) {
+                    if q.len() < MAX_FRONTIER {
+                        q.push_back(candidate);
+                    }
+                }
+                continue;
+            }
+            // Claim it.
+            if let Some(set) = self.territory.get_mut(lid) {
+                set.insert(candidate);
+            }
+            self.tile_owner.insert(candidate, *lid);
+            self.territory_revision = self.territory_revision.wrapping_add(1);
+            grown += 1;
+            // The new tile's own unowned neighbours are the next frontier.
+            self.push_frontier_candidates(lid, candidate);
+        }
+    }
+
+    /// Push the unowned, walkable 4-neighbours of `at` onto `lid`'s frontier
+    /// queue. Candidates are validated again when popped, so stale entries
+    /// are harmless.
+    pub(super) fn push_frontier_candidates(&mut self, lid: &crate::intern::Sym, at: (i32, i32)) {
+        const NEIGHBOURS: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+        let mut fresh: Vec<(i32, i32)> = Vec::new();
+        for (dx, dy) in NEIGHBOURS {
+            let (x, y) = (at.0 + dx, at.1 + dy);
+            if !crate::world::grid::WorldGrid::in_bounds(x, y) {
+                continue;
+            }
+            if matches!(self.grid.get(x, y), Tile::Water | Tile::Void) {
+                continue;
+            }
+            if self.tile_owner.contains_key(&(x, y)) {
+                continue;
+            }
+            fresh.push((x, y));
+        }
+        if fresh.is_empty() {
+            return;
+        }
+        let q = self.territory_frontiers.entry(*lid).or_default();
+        for p in fresh {
+            if q.len() >= MAX_FRONTIER {
+                break;
+            }
+            q.push_back(p);
+        }
+    }
+
+    /// Refill `lid`'s frontier queue from its current border. Iteration is
+    /// sorted so every rebuild produces the identical queue - the growth
+    /// pass stays deterministic after a save and load.
+    pub(crate) fn rebuild_territory_frontier(&mut self, lid: &crate::intern::Sym) {
+        let Some(tiles) = self.territory.get(lid) else {
+            self.territory_frontiers.swap_remove(lid);
+            return;
+        };
+        let mut sorted: Vec<(i32, i32)> = tiles.iter().copied().collect();
+        sorted.sort_unstable();
+        if let Some(q) = self.territory_frontiers.get_mut(lid) {
+            q.clear();
+        } else {
+            self.territory_frontiers.insert(*lid, Default::default());
+        }
+        for t in sorted {
+            self.push_frontier_candidates(lid, t);
+        }
+    }
+
+    /// Release the `count` tiles of `lid`'s territory farthest from its
+    /// centre. Ties by distance break by coordinates, never by set order:
+    /// the same world must evict the same tiles from run to run.
+    fn evict_territory_farthest(&mut self, lid: &crate::intern::Sym, count: usize) {
+        let Some(tiles) = self.territory.get(lid) else {
+            return;
+        };
+        if tiles.is_empty() || count == 0 {
+            return;
+        }
+        let (mut sx, mut sy) = (0i64, 0i64);
+        for &(x, y) in tiles.iter() {
+            sx += x as i64;
+            sy += y as i64;
+        }
+        let n = tiles.len() as i64;
+        let (cx, cy) = (sx / n, sy / n);
+        let mut ranked: Vec<(i64, i32, i32)> = tiles
+            .iter()
+            .map(|&(x, y)| {
+                let dx = x as i64 - cx;
+                let dy = y as i64 - cy;
+                (dx * dx + dy * dy, x, y)
+            })
+            .collect();
+        // Farthest first; ties by coordinates, never by set order.
+        ranked.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
+        ranked.truncate(count);
+        for (_, x, y) in ranked {
+            if let Some(set) = self.territory.get_mut(lid) {
+                set.swap_remove(&(x, y));
+            }
+            // Evictions only clear the inverse entry if it was owned by
+            // *this* lineage - another lineage may have a more recent claim.
+            if let Some(owner) = self.tile_owner.get(&(x, y)) {
+                if *owner == *lid {
+                    self.tile_owner.swap_remove(&(x, y));
                 }
             }
         }
-        for p in evicted {
-            if let Some(owner) = self.tile_owner.get(&p) {
-                if owner == lid {
-                    self.tile_owner.swap_remove(&p);
-                }
+        self.territory_revision = self.territory_revision.wrapping_add(1);
+    }
+
+    /// Rebuild the wire view of territory: per-lineage claimed tiles, the
+    /// contested tiles two or more lineages claim, and the war occupation
+    /// front grouped per occupier. Called on the slow cadence and, whenever
+    /// territory changed, on the hot ship cadence.
+    pub(crate) fn rebuild_territory_cache(&mut self) {
+        // Contested tiles: any tile claimed by 2+ lineages.
+        let mut tile_claim_count: HashMap<(i32, i32), u32> = HashMap::default();
+        for tiles in self.territory.values() {
+            for &tile in tiles {
+                *tile_claim_count.entry(tile).or_insert(0) += 1;
             }
         }
+        let contested: Vec<[i32; 2]> = tile_claim_count
+            .into_iter()
+            .filter(|(_, c)| *c >= 2)
+            .map(|((x, y), _)| [x, y])
+            .collect();
+        // The war occupation front, grouped per occupier: tile + strength
+        // (0..100). The client paints held ground in the occupier's colour
+        // at a strength-scaled striped overlay.
+        let mut occupied_json: Vec<serde_json::Value> = Vec::new();
+        {
+            let mut by_occupier: HashMap<&crate::intern::Sym, Vec<[f32; 3]>> = HashMap::default();
+            for (tile, (lid, strength)) in self.occupation.iter() {
+                by_occupier
+                    .entry(lid)
+                    .or_default()
+                    .push([tile.0 as f32, tile.1 as f32, *strength]);
+            }
+            for (lid, tiles) in by_occupier {
+                occupied_json.push(json!({"lid": lid, "tiles": tiles}));
+            }
+        }
+        self.cached_territory = serde_json::json!({
+            "claimed": self.territory.iter()
+                .map(|(lid, tiles)| {
+                    let pts: Vec<[i32;2]> = tiles.iter().map(|&(x,y)| [x,y]).collect();
+                    json!({"lid": lid, "tiles": pts})
+                }).collect::<Vec<_>>(),
+            "contested": contested,
+            "occupied": occupied_json,
+        });
     }
 
     /// The claim as it was before borrowing the lineage id and picking the
@@ -82,7 +311,6 @@ impl Simulation {
     /// against.
     #[cfg(test)]
     pub(super) fn claim_territory_reference(&mut self, lid: &str, cx: i32, cy: i32, radius: i32) {
-        const MAX_TERRITORY: usize = 400;
         // Pre-compute the tile list so we can update both maps without
         // holding two mutable borrows on `self` simultaneously.
         let mut to_claim: Vec<(i32, i32)> = Vec::new();
@@ -99,33 +327,13 @@ impl Simulation {
                 to_claim.push((tx, ty));
             }
         }
-        let tiles = self.territory.entry(lid.to_string().into()).or_default();
+        let lid_sym: crate::intern::Sym = lid.into();
+        let tiles = self.territory.entry(lid_sym).or_default();
         for p in &to_claim {
             tiles.insert(*p);
         }
-        let mut evicted: Vec<(i32, i32)> = Vec::new();
-        if tiles.len() > MAX_TERRITORY {
-            let mut sorted: Vec<(i32, i32)> = tiles.iter().copied().collect();
-            sorted.sort_by_key(|&(x, y)| (-((x - cx) * (x - cx) + (y - cy) * (y - cy)), x, y));
-            let excess = sorted.len() - MAX_TERRITORY;
-            for p in sorted.into_iter().take(excess) {
-                tiles.swap_remove(&p);
-                evicted.push(p);
-            }
-        }
-        // Update the inverse map. New claims overwrite (most-recent
-        // wins). Evictions only clear the inverse entry if it was
-        // owned by *this* lineage - another lineage may have a more
-        // recent claim on the same tile.
         for p in to_claim {
-            self.tile_owner.insert(p, lid.into());
-        }
-        for p in evicted {
-            if let Some(owner) = self.tile_owner.get(&p) {
-                if owner == lid {
-                    self.tile_owner.swap_remove(&p);
-                }
-            }
+            self.tile_owner.insert(p, lid_sym);
         }
     }
 
@@ -189,10 +397,10 @@ impl Simulation {
                     None => true,
                 };
                 if occupied {
-                    self.occupation
-                        .insert((x, y), (winner.as_str().into(), start));
+                    self.occupation.insert((x, y), (winner.as_str().into(), start));
                 }
             }
+            self.territory_revision = self.territory_revision.wrapping_add(1);
             let wname = self
                 .lineage_names
                 .get(&winner)

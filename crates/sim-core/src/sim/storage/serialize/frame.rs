@@ -3,6 +3,10 @@ use crate::sim::agriculture::plough_for;
 
 /// How often (in ticks) a stream frame carries the static grid layers.
 const STATIC_LAYER_TICKS: u64 = 60;
+/// How often (in ticks) a hot frame may ship the territory view. Set to the
+/// growth cadence: every border change a growth pass makes reaches the
+/// client within one step instead of waiting for a deep full frame.
+const TERRITORY_WIRE_TICKS: u64 = 25;
 
 impl Simulation {
     pub(super) fn state_frame_inner(
@@ -68,43 +72,10 @@ impl Simulation {
             )
             .unwrap();
 
-            // Compute contested tiles: any tile claimed by 2+ lineages
-            let mut tile_claim_count: HashMap<(i32, i32), u32> = HashMap::default();
-            for tiles in self.territory.values() {
-                for &tile in tiles {
-                    *tile_claim_count.entry(tile).or_insert(0) += 1;
-                }
-            }
-            let contested: Vec<[i32; 2]> = tile_claim_count
-                .into_iter()
-                .filter(|(_, c)| *c >= 2)
-                .map(|((x, y), _)| [x, y])
-                .collect();
-            // The war occupation front, grouped per occupier: tile + strength
-            // (0..100). The client paints held ground in the occupier's
-            // colour at a strength-scaled striped overlay.
-            let mut occupied_json: Vec<serde_json::Value> = Vec::new();
-            {
-                let mut by_occupier: HashMap<&crate::intern::Sym, Vec<[f32; 3]>> = HashMap::default();
-                for (tile, (lid, strength)) in self.occupation.iter() {
-                    by_occupier
-                        .entry(lid)
-                        .or_default()
-                        .push([tile.0 as f32, tile.1 as f32, *strength]);
-                }
-                for (lid, tiles) in by_occupier {
-                    occupied_json.push(json!({"lid": lid, "tiles": tiles}));
-                }
-            }
-            self.cached_territory = serde_json::json!({
-                "claimed": self.territory.iter()
-                    .map(|(lid, tiles)| {
-                        let pts: Vec<[i32;2]> = tiles.iter().map(|&(x,y)| [x,y]).collect();
-                        json!({"lid": lid, "tiles": pts})
-                    }).collect::<Vec<_>>(),
-                "contested": contested,
-                "occupied": occupied_json,
-            });
+            // Territory view (claimed / contested / occupied) is rebuilt on
+            // its own hot cadence now (see the ship check below); the slow
+            // pass only tops it up so a cold frame is never stale.
+            self.rebuild_territory_cache();
 
             self.slow_compute_tick = self.tick_count;
         }
@@ -179,6 +150,18 @@ impl Simulation {
             }
         }
         let include_all_entities = force_full || self.tick_count.is_multiple_of(120) || self.tick_count <= 1;
+        // Territory is live player-facing state: borders creep every growth
+        // pass and ground flips hands in wars, so ship the changed view on
+        // hot frames at the growth cadence instead of making the client wait
+        // a deep full frame. Cold frames always carry it for late joiners.
+        let ship_territory = include_cold
+            || (self.territory_revision != self.serialized_territory_rev
+                && self.tick_count.saturating_sub(self.serialized_territory_tick) >= TERRITORY_WIRE_TICKS);
+        if ship_territory {
+            self.rebuild_territory_cache();
+            self.serialized_territory_rev = self.territory_revision;
+            self.serialized_territory_tick = self.tick_count;
+        }
         // When the viewport spans the whole world (the current config),
         // the centroid-centered window can slide off the map and filter
         // out entities that are still on the canvas. Compute the actual
@@ -252,6 +235,9 @@ impl Simulation {
             }
         }
         if let Some(obj) = payload.as_object_mut() {
+            if ship_territory {
+                obj.insert("territory".into(), self.cached_territory.clone());
+            }
             obj.insert("vehicles".into(), serde_json::Value::Array(self.vehicles.iter().map(|v| json!({
                 "id": v.id, "kind": v.kind.name(), "x": v.x, "y": v.y,
                 "rider_id": v.occupants.first(), "building": self.tick_count < v.ready_tick && !v.occupants.is_empty() && v.rail_line.is_none(),
@@ -584,7 +570,8 @@ impl Simulation {
                 );
                 obj.insert("difficulty".to_string(), json!(self.goals.difficulty.name()));
                 obj.insert("lost_tick".to_string(), json!(self.goals.lost_tick));
-                obj.insert("territory".to_string(), self.cached_territory.clone());
+                // territory rides the hot ship check above (cold frames always
+                // pass it, so late joiners still get it first frame).
                 // The emergent armory: active weapon designs per lineage, with
                 // their architecture names, damage and battle credits.
                 {
@@ -612,16 +599,12 @@ impl Simulation {
                     let techs: Vec<serde_json::Value> = self
                         .emergent_techs
                         .iter()
-                        .map(|t| {
-                            json!({"lineage": t.lineage, "name": t.name, "gen": t.gen, "desc": t.desc})
-                        })
+                        .map(|t| json!({"lineage": t.lineage, "name": t.name, "gen": t.gen, "desc": t.desc}))
                         .collect();
                     let ideas: Vec<serde_json::Value> = self
                         .emergent_ideas
                         .iter()
-                        .map(|i| {
-                            json!({"lineage": i.lineage, "name": i.name, "desc": i.desc})
-                        })
+                        .map(|i| json!({"lineage": i.lineage, "name": i.name, "desc": i.desc}))
                         .collect();
                     obj.insert(
                         "emergent_civ".to_string(),

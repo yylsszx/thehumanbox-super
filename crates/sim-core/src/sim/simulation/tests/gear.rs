@@ -13,8 +13,14 @@ fn the_village_forge_equips_its_lineage() {
         let o = sim.organisms.iter().find(|o| o.alive).unwrap();
         (o.lineage_id, o.x as i32, o.y as i32)
     };
-    let mut smithy =
-        Building::new(9001, BuildingKind::Smithy, ox + 2, oy + 2, Some(lid.as_str().to_string()), 0);
+    let mut smithy = Building::new(
+        9001,
+        BuildingKind::Smithy,
+        ox + 2,
+        oy + 2,
+        Some(lid.as_str().to_string()),
+        0,
+    );
     smithy.condition = 1.0;
     sim.buildings.push(smithy);
     sim.lineage_eras.insert(lid, Era::Bronze);
@@ -35,7 +41,12 @@ fn the_village_forge_equips_its_lineage() {
     for o in sim.organisms.iter().filter(|o| o.alive) {
         for key in o.gear.values() {
             let def = crate::organism::items::item_def(key).unwrap();
-            assert!(def.tier <= 1, "bronze forge leaked {} (tier {})", def.key, def.tier);
+            assert!(
+                def.tier <= 1,
+                "bronze forge leaked {} (tier {})",
+                def.key,
+                def.tier
+            );
         }
     }
 }
@@ -49,7 +60,7 @@ fn gear_rides_the_save() {
     let _ = std::fs::remove_file(format!("{}.tmp", path_s));
 
     let mut sim = Simulation::new(0x6EA4);
-    let org_id = sim.organisms[0].id.clone();
+    let org_id = sim.organisms[0].id;
     // Dress them from the table directly.
     let def = crate::organism::items::item_def("sword3").unwrap();
     crate::organism::items::equip(&mut sim.organisms[0].gear, def);
@@ -86,7 +97,7 @@ fn a_geared_fighter_strikes_harder_than_a_bare_one() {
     // the rolls ride on both ways: edge on the weapon, mitigation on the
     // armour, both capped and scaled as documented.
     use crate::organism::items::{GearStats, DMG_SCALE, MITIGATION_CAP};
-    let mut bare = std::collections::BTreeMap::new();
+    let bare = std::collections::BTreeMap::new();
     let mut armed = std::collections::BTreeMap::new();
     crate::organism::items::equip(&mut armed, crate::organism::items::item_def("excalibur").unwrap());
     let bare_s = GearStats::of(&bare);

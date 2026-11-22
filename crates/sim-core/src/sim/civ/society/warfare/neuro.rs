@@ -25,82 +25,56 @@
 //! the helpers below; every input is normalized to [0, 1] exactly like the
 //! pwb call sites.
 
+use crate::organism::organism::Organism;
 use crate::sim::civ::warfare::CombatStyle;
 use crate::sim::era::Era;
 use crate::world::grid::WorldGrid;
 use crate::world::tiles::Biome;
-use crate::organism::organism::Organism;
 
 // @generated from pwb src/lib/game/neuro-weights.ts + neuro-flight-rl.ts (seed 20260206/20260207)
 const ACC_W1Q: [i8; 160] = [
-    27,0,-3,4,4,-27,12,-21,-7,24,1,-44,33,1,23,-7,
-    11,-37,-9,-37,24,-12,-24,-27,9,6,20,127,-16,-49,-2,-61,
-    -15,-43,-3,11,32,-20,6,-13,37,3,-4,43,15,-36,29,10,
-    -13,-18,-1,21,20,22,-26,-19,30,18,30,30,18,8,-7,5,
-    -18,-6,-1,-4,0,4,8,-19,16,-17,-3,-30,0,26,22,22,
-    -1,1,-19,10,-12,-8,-25,7,-10,-10,9,-17,5,12,-8,-6,
-    -6,-9,-10,-6,-10,9,31,15,-19,21,29,-23,3,0,22,5,
-    -20,1,20,3,30,-14,-28,27,-25,3,-23,7,32,-30,3,-11,
-    19,-2,-22,14,21,-22,-23,-16,-12,9,1,22,-2,-16,-5,-3,
-    22,11,-4,-27,-4,5,26,-7,-10,13,16,11,-3,-20,11,-7,
+    27, 0, -3, 4, 4, -27, 12, -21, -7, 24, 1, -44, 33, 1, 23, -7, 11, -37, -9, -37, 24, -12, -24, -27, 9, 6,
+    20, 127, -16, -49, -2, -61, -15, -43, -3, 11, 32, -20, 6, -13, 37, 3, -4, 43, 15, -36, 29, 10, -13, -18,
+    -1, 21, 20, 22, -26, -19, 30, 18, 30, 30, 18, 8, -7, 5, -18, -6, -1, -4, 0, 4, 8, -19, 16, -17, -3, -30,
+    0, 26, 22, 22, -1, 1, -19, 10, -12, -8, -25, 7, -10, -10, 9, -17, 5, 12, -8, -6, -6, -9, -10, -6, -10, 9,
+    31, 15, -19, 21, 29, -23, 3, 0, 22, 5, -20, 1, 20, 3, 30, -14, -28, 27, -25, 3, -23, 7, 32, -30, 3, -11,
+    19, -2, -22, 14, 21, -22, -23, -16, -12, 9, 1, 22, -2, -16, -5, -3, 22, 11, -4, -27, -4, 5, 26, -7, -10,
+    13, 16, 11, -3, -20, 11, -7,
 ];
 const ACC_B1Q: [i8; 16] = [
-    98,50,87,61,-45,-77,19,9,-60,-13,105,127,23,-16,41,25,
+    98, 50, 87, 61, -45, -77, 19, 9, -60, -13, 105, 127, 23, -16, 41, 25,
 ];
 const ACC_W2Q: [i8; 16] = [
-    23,45,41,58,-46,-29,14,5,-31,-13,38,-127,24,43,28,67,
+    23, 45, 41, 58, -46, -29, 14, 5, -31, -13, 38, -127, 24, 43, 28, 67,
 ];
-const ACC_B2Q: [i8; 1] = [
-    127,
-];
-const ACC_SCALES: [f32; 4] = [
-    0.0144204, 0.00561920, 0.0115210, 0.00934190,
-];
+const ACC_B2Q: [i8; 1] = [127];
+const ACC_SCALES: [f32; 4] = [0.0144204, 0.00561920, 0.0115210, 0.00934190];
 
 const STANCE_W1Q: [i8; 120] = [
-    90,2,-127,2,73,-1,27,-6,-1,-4,1,49,0,1,0,7,
-    1,14,3,4,0,0,0,1,0,0,0,1,2,-1,1,-1,
-    2,0,-5,-1,-7,1,1,-1,-31,1,0,-14,-48,2,-14,0,
-    -2,3,1,0,20,7,-2,0,7,3,4,-4,-7,-1,1,9,
-    1,1,-5,0,2,4,0,-5,0,0,0,-43,2,11,3,2,
-    0,0,0,0,0,0,0,0,-1,-1,0,14,0,1,0,-5,
-    0,5,-2,0,0,-11,0,0,0,11,0,-2,2,1,0,0,
-    0,0,0,0,0,-1,1,0,
+    90, 2, -127, 2, 73, -1, 27, -6, -1, -4, 1, 49, 0, 1, 0, 7, 1, 14, 3, 4, 0, 0, 0, 1, 0, 0, 0, 1, 2, -1, 1,
+    -1, 2, 0, -5, -1, -7, 1, 1, -1, -31, 1, 0, -14, -48, 2, -14, 0, -2, 3, 1, 0, 20, 7, -2, 0, 7, 3, 4, -4,
+    -7, -1, 1, 9, 1, 1, -5, 0, 2, 4, 0, -5, 0, 0, 0, -43, 2, 11, 3, 2, 0, 0, 0, 0, 0, 0, 0, 0, -1, -1, 0, 14,
+    0, 1, 0, -5, 0, 5, -2, 0, 0, -11, 0, 0, 0, 11, 0, -2, 2, 1, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0,
 ];
-const STANCE_B1Q: [i8; 10] = [
-    28,-64,-17,70,125,127,26,47,70,-53,
-];
+const STANCE_B1Q: [i8; 10] = [28, -64, -17, 70, 125, 127, 26, 47, 70, -53];
 const STANCE_W2Q: [i8; 40] = [
-    -43,87,-35,-5,30,23,23,-81,127,-111,-18,6,
-    -4,-27,8,0,92,-52,-118,75,-28,-23,-25,79,22,-23,-51,41,
-    53,-14,-4,-30,79,-29,-24,-26,-1,-4,8,-7,
+    -43, 87, -35, -5, 30, 23, 23, -81, 127, -111, -18, 6, -4, -27, 8, 0, 92, -52, -118, 75, -28, -23, -25,
+    79, 22, -23, -51, 41, 53, -14, -4, -30, 79, -29, -24, -26, -1, -4, 8, -7,
 ];
-const STANCE_B2Q: [i8; 4] = [
-    127,-50,-31,-46,
-];
-const STANCE_SCALES: [f32; 4] = [
-    0.281044, 0.0161662, 0.0723983, 0.0484622,
-];
+const STANCE_B2Q: [i8; 4] = [127, -50, -31, -46];
+const STANCE_SCALES: [f32; 4] = [0.281044, 0.0161662, 0.0723983, 0.0484622];
 
 const FLIGHT_W1Q: [i8; 72] = [
-    -73,-58,103,-4,88,113,23,30,1,17,0,-27,21,-30,7,-46,
-    127,0,-2,5,2,5,5,1,3,2,1,0,5,3,4,4,
-    3,4,1,-7,4,2,5,2,45,13,-11,-5,13,-3,-53,55,
-    2,17,5,-3,15,-13,86,-3,31,-10,37,3,-3,9,-5,41,
-    2,3,1,2,2,1,4,3,
+    -73, -58, 103, -4, 88, 113, 23, 30, 1, 17, 0, -27, 21, -30, 7, -46, 127, 0, -2, 5, 2, 5, 5, 1, 3, 2, 1,
+    0, 5, 3, 4, 4, 3, 4, 1, -7, 4, 2, 5, 2, 45, 13, -11, -5, 13, -3, -53, 55, 2, 17, 5, -3, 15, -13, 86, -3,
+    31, -10, 37, 3, -3, 9, -5, 41, 2, 3, 1, 2, 2, 1, 4, 3,
 ];
-const FLIGHT_B1Q: [i8; 8] = [
-    -60,31,-127,71,-59,13,33,-13,
-];
+const FLIGHT_B1Q: [i8; 8] = [-60, 31, -127, 71, -59, 13, 33, -13];
 const FLIGHT_W2Q: [i8; 16] = [
-    109,-127,-35,57,71,-97,-36,59,68,-55,34,-37,-55,59,-64,59,
+    109, -127, -35, 57, 71, -97, -36, 59, 68, -55, 34, -37, -55, 59, -64, 59,
 ];
-const FLIGHT_B2Q: [i8; 2] = [
-    -127,127,
-];
-const FLIGHT_SCALES: [f32; 4] = [
-    0.124688, 0.0490805, 0.0445458, 0.00393435,
-];
+const FLIGHT_B2Q: [i8; 2] = [-127, 127];
+const FLIGHT_SCALES: [f32; 4] = [0.124688, 0.0490805, 0.0445458, 0.00393435];
 
 /// Stance classes, matching the pwb network's output layout.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -156,15 +130,9 @@ fn heads() -> &'static [Head; 3] {
             head
         };
         [
-            mk(
-                &ACC_W1Q, &ACC_B1Q, &ACC_W2Q, &ACC_B2Q, &ACC_SCALES,
-            ),
-            mk(
-                &STANCE_W1Q, &STANCE_B1Q, &STANCE_W2Q, &STANCE_B2Q, &STANCE_SCALES,
-            ),
-            mk(
-                &FLIGHT_W1Q, &FLIGHT_B1Q, &FLIGHT_W2Q, &FLIGHT_B2Q, &FLIGHT_SCALES,
-            ),
+            mk(&ACC_W1Q, &ACC_B1Q, &ACC_W2Q, &ACC_B2Q, &ACC_SCALES),
+            mk(&STANCE_W1Q, &STANCE_B1Q, &STANCE_W2Q, &STANCE_B2Q, &STANCE_SCALES),
+            mk(&FLIGHT_W1Q, &FLIGHT_B1Q, &FLIGHT_W2Q, &FLIGHT_B2Q, &FLIGHT_SCALES),
         ]
     })
 }
@@ -368,7 +336,10 @@ pub(super) fn stance_features(
     allies_here: usize,
 ) -> [f32; 12] {
     let has_range = me.has_tool("bow")
-        || matches!(my_style, CombatStyle::Musket | CombatStyle::Rifle | CombatStyle::Modern);
+        || matches!(
+            my_style,
+            CombatStyle::Musket | CombatStyle::Rifle | CombatStyle::Modern
+        );
     let range = style_range(my_style);
     let my_pow = power_n(me, my_style);
     let foe_style = super::combat_style_for(foe, Era::Medieval);
@@ -399,7 +370,8 @@ pub(super) fn stance_features(
 ///   f6 more beasts close — 0 (pack handled as always-flee upstream)
 ///   f7 I am a monster — 0 f8 veteran skill
 pub(crate) fn flight_features(me: &Organism, beast_power: f32, dist: f32) -> [f32; 9] {
-    let my_pow = 0.5 + super::soldier_bonus(me) * 2.5
+    let my_pow = 0.5
+        + super::soldier_bonus(me) * 2.5
         + if me.has_tool("rifle") {
             0.9
         } else if me.has_tool("musket") {
@@ -433,14 +405,30 @@ mod tests {
     fn teacher_acc(f: &[f32; 10]) -> f32 {
         let mut acc = 0.86 + (f[0] * 20.0 * 0.005).min(0.1);
         acc -= f[1] * 0.5;
-        if f[2] > 0.5 { acc -= 0.16; }
-        if f[3] > 0.5 { acc -= 0.08; }
-        if f[4] > 0.5 { acc += 0.08; }
-        if f[5] > 0.5 { acc += 0.04; }
-        if f[6] > 0.5 { acc += 0.06; }
-        if f[7] > 0.5 { acc -= 0.06; }
-        if f[8] > 0.5 { acc -= 0.07; }
-        if f[9] > 0.5 { acc -= 0.04; }
+        if f[2] > 0.5 {
+            acc -= 0.16;
+        }
+        if f[3] > 0.5 {
+            acc -= 0.08;
+        }
+        if f[4] > 0.5 {
+            acc += 0.08;
+        }
+        if f[5] > 0.5 {
+            acc += 0.04;
+        }
+        if f[6] > 0.5 {
+            acc += 0.06;
+        }
+        if f[7] > 0.5 {
+            acc -= 0.06;
+        }
+        if f[8] > 0.5 {
+            acc -= 0.07;
+        }
+        if f[9] > 0.5 {
+            acc -= 0.04;
+        }
         acc.clamp(0.35, 0.97)
     }
 
@@ -448,13 +436,19 @@ mod tests {
         let dist = f[0] * 12.0;
         let reach = f[5] * 2.0;
         let range = f[4] * 8.0;
-        if dist <= reach + 0.05 { return 0; }
+        if dist <= reach + 0.05 {
+            return 0;
+        }
         if f[3] > 0.5 && dist <= range {
             let band = if f[6] > 0.5 { 0.7 } else { 0.45 };
-            if dist < band * range || dist < 1.5 { return 2; }
+            if dist < band * range || dist < 1.5 {
+                return 2;
+            }
             return 1;
         }
-        if f[1] < 0.3 && f[7] < 0.42 && f[9] < 0.5 && f[10] > 0.5 { return 3; }
+        if f[1] < 0.3 && f[7] < 0.42 && f[9] < 0.5 && f[10] > 0.5 {
+            return 3;
+        }
         0
     }
 
@@ -464,7 +458,7 @@ mod tests {
         let mut s = seed;
         let mut v = Vec::with_capacity(n);
         for _ in 0..n {
-            s = s.wrapping_mul(1_664_525).wrapping_add(1013_904_223);
+            s = s.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
             v.push((s >> 8) as f32 / 16_777_216.0);
         }
         v
@@ -479,7 +473,11 @@ mod tests {
             let r = lcg_vec(10, 20260206u32.wrapping_add(k as u32));
             let mut f = [0f32; 10];
             f.copy_from_slice(&r);
-            assert!((neuro_acc(&f) - want).abs() < 5e-4, "acc[{k}] = {} want {want}", neuro_acc(&f));
+            assert!(
+                (neuro_acc(&f) - want).abs() < 5e-4,
+                "acc[{k}] = {} want {want}",
+                neuro_acc(&f)
+            );
         }
         for (k, want) in [2usize, 2, 0].iter().enumerate() {
             let r = lcg_vec(12, 20260207u32.wrapping_add(k as u32));
@@ -500,7 +498,7 @@ mod tests {
     struct Lcg(u32);
     impl Lcg {
         fn u(&mut self) -> f32 {
-            self.0 = self.0.wrapping_mul(1_664_525).wrapping_add(1013_904_223);
+            self.0 = self.0.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
             (self.0 >> 8) as f32 / 16_777_216.0
         }
     }
@@ -535,9 +533,14 @@ mod tests {
             let teacher = teacher_acc(&f);
             let d = (net - teacher).abs();
             worst = worst.max(d);
-            if d <= 0.02 { within += 1; }
+            if d <= 0.02 {
+                within += 1;
+            }
         }
-        assert!(within as f32 / N as f32 > 0.95, "acc within-0.02 {within}/{N}, worst {worst:.4}");
+        assert!(
+            within as f32 / N as f32 > 0.95,
+            "acc within-0.02 {within}/{N}, worst {worst:.4}"
+        );
         assert!(worst < 0.09, "acc worst deviation {worst:.4}");
     }
 
@@ -565,7 +568,9 @@ mod tests {
         const N: usize = 2000;
         for k in 0..N {
             let f = sparse_stance(20260207u32.wrapping_add(k as u32));
-            if neuro_stance(&f) as usize == teacher_stance(&f) { agree += 1; }
+            if neuro_stance(&f) as usize == teacher_stance(&f) {
+                agree += 1;
+            }
         }
         assert!(agree as f32 / N as f32 > 0.80, "stance agreement {agree}/{N}");
     }
@@ -585,7 +590,9 @@ mod tests {
             f[2] = g.u() * 0.15;
             f[4] = g.u() * 0.5;
             f[8] = g.u() * 0.4;
-            if neuro_flight(&f) == 1 { flee += 1; }
+            if neuro_flight(&f) == 1 {
+                flee += 1;
+            }
         }
         assert!(flee as f32 / N as f32 > 0.9, "flight must-flee rate {flee}/{N}");
     }
@@ -595,11 +602,17 @@ mod tests {
         for seed in [1u32, 7, 20260206] {
             let r = lcg_vec(12, seed);
             let mut f10 = [0f32; 10];
-            for (i, v) in r.iter().take(10).enumerate() { f10[i] = *v; }
+            for (i, v) in r.iter().take(10).enumerate() {
+                f10[i] = *v;
+            }
             let mut f12 = [0f32; 12];
-            for (i, v) in r.iter().enumerate() { f12[i] = *v; }
+            for (i, v) in r.iter().enumerate() {
+                f12[i] = *v;
+            }
             let mut f9 = [0f32; 9];
-            for (i, v) in r.iter().take(9).enumerate() { f9[i] = *v; }
+            for (i, v) in r.iter().take(9).enumerate() {
+                f9[i] = *v;
+            }
             let p = neuro_acc(&f10);
             assert!((0.35..=0.97).contains(&p));
             let _ = neuro_stance(&f12);

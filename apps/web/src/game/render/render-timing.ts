@@ -5,7 +5,11 @@ export function worldRenderScale(zoom: number, dpr: number, lowPerf: boolean): n
 }
 
 export function interpolationFactor(now: number, receivedAt: number, interval: number): number {
-  return Math.max(0, Math.min(1, (now - receivedAt) / Math.max(50, interval)))
+  // The 40 ms floor matches the worker's fast-forward emit gate (see
+  // wasmWorker.ts HOT_EMIT_MIN_MS): interpolating over 50 ms while frames
+  // arrive every 40 ms never completes a segment, snapping entities back a
+  // fifth of a step on every frame swap.
+  return Math.max(0, Math.min(1, (now - receivedAt) / Math.max(40, interval)))
 }
 
 export function shouldRenderFrame(now: number, previous: number, fps: number): boolean {

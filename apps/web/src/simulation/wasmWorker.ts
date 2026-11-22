@@ -73,6 +73,12 @@ type InMsg =
 // Terrain and cold metadata refresh at the same real-time cadence at every speed.
 // A simulation-tick cadence makes fast-forward serialize huge snapshots 50x more often.
 const DEEP_FULL_EVERY_MS = 300 * WASM_BASE_TICK_MS
+// Hot frames during fast-forward are gated to this floor: at 40x the batch
+// timer sits around 18 ms, and without a floor the worker would post frames
+// every batch, flooding the main thread. 40 ms (25 world frames a second)
+// keeps fast-forward visibly smooth while staying far under one frame per
+// screen refresh.
+const HOT_EMIT_MIN_MS = 40
 // Full world saves can be tens of megabytes and serialize synchronously on
 // this worker, pausing ticks and frame delivery. Commands and shutdowns still
 // checkpoint immediately; hidden/pagehide handlers also request a save.
@@ -731,7 +737,12 @@ function tickOnce() {
     owedTicks -= 1
   }
   if (completed > 0) {
-    if (tickMs >= WASM_BASE_TICK_MS || performance.now() - lastEmittedAt >= WASM_BASE_TICK_MS) {
+    // Emit every batch at or below 1x; above that, gate hot frames by the
+    // smaller of the base cadence and the current tick interval, floored at
+    // HOT_EMIT_MIN_MS, so fast-forward worlds interpolate at ~25 Hz instead
+    // of the old 120 ms gate (8.3 Hz) that made 40x look steppy.
+    const emitGateMs = Math.max(HOT_EMIT_MIN_MS, Math.min(WASM_BASE_TICK_MS, tickMs))
+    if (tickMs >= WASM_BASE_TICK_MS || performance.now() - lastEmittedAt >= emitGateMs) {
       emit(performance.now() - lastDeepFullAt >= DEEP_FULL_EVERY_MS)
       if (simFailed) return
     }

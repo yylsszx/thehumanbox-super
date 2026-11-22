@@ -18,8 +18,8 @@
 
 use super::*;
 use crate::sim::simulation::Simulation;
-use rand_chacha::ChaCha8Rng;
 use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 
 /// Ticks between atmosphere beats. Ten beats a day keeps the field cheap
 /// (5000 cells) and slow enough that weather keeps its own rhythm.
@@ -139,11 +139,7 @@ impl Simulation {
                 // of drift happens at wind magnitude 1.
                 let src_x = (cx as f32 - wx).round() as i32;
                 let src_y = (cy as f32 - wy).round() as i32;
-                let incoming = if src_x >= 0
-                    && src_x < AW as i32
-                    && src_y >= 0
-                    && src_y < AH as i32
-                {
+                let incoming = if src_x >= 0 && src_x < AW as i32 && src_y >= 0 && src_y < AH as i32 {
                     self.atmosphere.moisture[src_y as usize * AW + src_x as usize]
                 } else {
                     // Air from off the map edge starts over the ocean.
@@ -227,7 +223,7 @@ mod tests {
         for c in 0..AW * AH {
             let ocean = c % 2 == 0;
             wet.atmosphere.water[c] = if ocean { 0.9 } else { 0.0 };
-            wet.atmosphere.moisture[c] = if ocean { 2.2 } else { 2.2 };
+            wet.atmosphere.moisture[c] = 2.2;
         }
         wet.atmosphere.recompute_supply();
         assert!(
@@ -263,10 +259,7 @@ mod tests {
         // Far downwind stays drier than the coast behind it: classic rain
         // shadow gradient.
         let col = |x: usize| -> f32 {
-            (0..AH)
-                .map(|y| sim.atmosphere.moisture[y * AW + x])
-                .sum::<f32>()
-                / AH as f32
+            (0..AH).map(|y| sim.atmosphere.moisture[y * AW + x]).sum::<f32>() / AH as f32
         };
         let coast = col(6);
         let downwind = col(AW - 2);

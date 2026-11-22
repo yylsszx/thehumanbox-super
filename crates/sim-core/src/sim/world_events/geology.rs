@@ -24,8 +24,8 @@
 use super::*;
 use crate::math::DetMath;
 use crate::sim::simulation::Simulation;
-use rand_chacha::ChaCha8Rng;
 use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 
 /// How many ticks between geology beats (shared with world evolution).
 pub const GEOLOGY_STEP: u64 = 300;
@@ -52,7 +52,9 @@ struct Hotspot {
 
 /// Transient tectonic state, rebuilt from the world seed.
 pub struct GeologyState {
-    /// Plate id per tile.
+    /// Plate id per tile (write-only today: kept for the planned orogeny
+    /// visualisation).
+    #[allow(dead_code)]
     plate: Vec<u8>,
     /// Stress per tile (only boundary cells are meaningful).
     stress: Vec<f32>,
@@ -92,8 +94,7 @@ impl GeologyState {
                 for x in 0..WIDTH as i32 {
                     let (mut best, mut bd) = (0u8, f32::MAX);
                     for (p, &(sx, sy)) in seeds.iter().enumerate() {
-                        let d = (x as f32 - sx) * (x as f32 - sx)
-                            + (y as f32 - sy) * (y as f32 - sy);
+                        let d = (x as f32 - sx) * (x as f32 - sx) + (y as f32 - sy) * (y as f32 - sy);
                         if d < bd {
                             bd = d;
                             best = p as u8;
@@ -150,12 +151,10 @@ impl GeologyState {
                 let here = plate[i as usize];
                 let right = (x + 1 < WIDTH as i32).then(|| plate[WorldGrid::idx(x + 1, y)]);
                 let down = (y + 1 < HEIGHT as i32).then(|| plate[WorldGrid::idx(x, y + 1)]);
-                for other in [right, down] {
-                    if let Some(o) = other {
-                        if o != here {
-                            boundary.push((i, here, o));
-                            break;
-                        }
+                for other in [right, down].into_iter().flatten() {
+                    if other != here {
+                        boundary.push((i, here, other));
+                        break;
                     }
                 }
             }
@@ -327,8 +326,7 @@ impl Simulation {
                 hurt += 1;
             }
         }
-        let buildings =
-            crate::sim::civ::building_damage::quake_damage(self, x, y, r);
+        let buildings = crate::sim::civ::building_damage::quake_damage(self, x, y, r);
         push_event(
             &mut self.events,
             tick,
@@ -369,9 +367,7 @@ impl Simulation {
             let dx = self.geology.rng.random_range(-8i32..=8);
             let dy = self.geology.rng.random_range(-8i32..=8);
             let (nx, ny) = (x + dx, y + dy);
-            if WorldGrid::in_bounds(nx, ny)
-                && matches!(self.grid.get(nx, ny), Tile::Grass | Tile::Sand)
-            {
+            if WorldGrid::in_bounds(nx, ny) && matches!(self.grid.get(nx, ny), Tile::Grass | Tile::Sand) {
                 self.grid.set(nx, ny, Tile::Rock);
                 placed += 1;
             }
@@ -395,9 +391,7 @@ impl Simulation {
             tick,
             "eruption",
             "the deep",
-            &format!(
-                "a hotspot burst through the crust near ({x},{y}); {buildings} buildings scorched"
-            ),
+            &format!("a hotspot burst through the crust near ({x},{y}); {buildings} buildings scorched"),
         );
     }
 
@@ -409,7 +403,8 @@ impl Simulation {
             let x = self.geology.rng.random_range(1..WIDTH as i32 - 1);
             let y = self.geology.rng.random_range(1..HEIGHT as i32 - 1);
             let i = WorldGrid::idx(x, y);
-            if matches!(self.grid.tiles[i], t if t == Tile::Water as i8 || t == Tile::Void as i8 || t == Tile::Ice as i8) {
+            if matches!(self.grid.tiles[i], t if t == Tile::Water as i8 || t == Tile::Void as i8 || t == Tile::Ice as i8)
+            {
                 continue;
             }
             let e = self.grid.elevation[i];
@@ -427,11 +422,12 @@ impl Simulation {
             }
             // Only near water does the river do the carving.
             let near_water = (-4i32..=4).any(|dx| {
-                (-4i32..=4)
-                    .any(|dy| WorldGrid::in_bounds(x + dx, y + dy) && {
+                (-4i32..=4).any(|dy| {
+                    WorldGrid::in_bounds(x + dx, y + dy) && {
                         let t = self.grid.get(x + dx, y + dy);
                         matches!(t, Tile::Water | Tile::Flooded)
-                    })
+                    }
+                })
             });
             if !near_water {
                 continue;
@@ -440,8 +436,7 @@ impl Simulation {
             // the downhill neighbour when it is land, else the bank itself.
             self.grid.elevation[i] = (e - 0.012).max(0.0);
             let j = WorldGrid::idx(low.1, low.2);
-            let target = if self.grid.tiles[j] != Tile::Water as i8
-                && self.grid.tiles[j] != Tile::Void as i8
+            let target = if self.grid.tiles[j] != Tile::Water as i8 && self.grid.tiles[j] != Tile::Void as i8
             {
                 j
             } else {
@@ -450,9 +445,7 @@ impl Simulation {
             self.grid.fertility[target] = (self.grid.fertility[target] + 0.02).min(0.95);
             deposits.push((x, y));
             // Bare steep rock slowly crumbles to sand.
-            if self.grid.tiles[i] == Tile::Rock as i8
-                && self.geology.rng.random::<f32>() < 0.05
-            {
+            if self.grid.tiles[i] == Tile::Rock as i8 && self.geology.rng.random::<f32>() < 0.05 {
                 self.grid.tiles[i] = Tile::Sand as i8;
             }
             let _ = deposits.last().copied();
@@ -509,18 +502,18 @@ mod tests {
         }
         let quakes_before = sim.geology.quakes;
         sim.tick_geology_engine();
-        assert_eq!(sim.geology.quakes, quakes_before + 1, "a charged fault must let go");
+        assert_eq!(
+            sim.geology.quakes,
+            quakes_before + 1,
+            "a charged fault must let go"
+        );
         // The event log carries the quake.
         assert!(sim
             .events
             .iter()
             .any(|e| e.etype == "earthquake" && e.detail.contains("crust gave way")));
         // Stress around the epicenter slid back down.
-        let max_stress = sim
-            .geology
-            .stress
-            .iter()
-            .fold(0.0f32, |a, b| a.max(*b));
+        let max_stress = sim.geology.stress.iter().fold(0.0f32, |a, b| a.max(*b));
         assert!(
             max_stress < RELEASE_STRESS * 0.6,
             "release must relax the fault, max stress {max_stress}"

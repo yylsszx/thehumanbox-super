@@ -28,9 +28,9 @@ use std::collections::VecDeque;
 mod animals;
 mod carcasses;
 mod census;
+pub(crate) mod ecology;
 mod flocks;
 mod helpers;
-pub(crate) mod ecology;
 mod herds;
 mod lineage;
 mod memory;
@@ -296,6 +296,22 @@ pub struct Simulation {
     pub(crate) emergent_ideas: Vec<crate::sim::tech::emergent::EmergentIdea>,
     pub(crate) emergent_rng: ChaCha8Rng,
     pub(crate) cached_territory: serde_json::Value,
+    // Organic territory growth (see `simulation::territory`): per-lineage FIFO
+    // queues of unowned candidate tiles on the border of owned land, fed by
+    // claims and annexes and drained by the growth pass. Runtime state,
+    // rebuilt from `territory` on load (sorted, so every rebuild is identical).
+    pub(crate) territory_frontiers: HashMap<crate::intern::Sym, VecDeque<(i32, i32)>>,
+    // Private jitter stream for growth (same rule as `occupation_rng`: seeded
+    // from the world seed, never the world RNG, so the world's rolls stay dense
+    // whether borders grow or not).
+    pub(crate) territory_rng: ChaCha8Rng,
+    /// Bumped by every territory mutation (claim, growth, annex, decay) so
+    /// the wire can ship hot updates instead of waiting for a deep frame.
+    pub(crate) territory_revision: u64,
+    /// The revision the wire last shipped, and the tick it went out on: hot
+    /// territory frames are throttled to the growth cadence.
+    pub(crate) serialized_territory_rev: u64,
+    pub(crate) serialized_territory_tick: u64,
 }
 
 impl Simulation {
@@ -477,6 +493,11 @@ impl Simulation {
             territory: HashMap::default(),
             tile_owner: HashMap::default(),
             cached_territory: serde_json::Value::Null,
+            territory_frontiers: HashMap::default(),
+            territory_rng: ChaCha8Rng::seed_from_u64(seed ^ 0x7e55_0002),
+            territory_revision: 0,
+            serialized_territory_rev: 0,
+            serialized_territory_tick: 0,
         }
     }
 

@@ -855,6 +855,7 @@ impl Simulation {
         for &t in tiles {
             self.tile_owner.insert(t, to.to_string().into());
         }
+        self.territory_revision = self.territory_revision.wrapping_add(1);
     }
 
     fn cede_towns(

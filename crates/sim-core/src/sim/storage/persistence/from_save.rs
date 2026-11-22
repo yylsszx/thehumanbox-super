@@ -292,6 +292,11 @@ impl Simulation {
             emergent_rng: ChaCha8Rng::seed_from_u64(seed ^ 0x7e11_0001),
             tile_owner: crate::hashing::FxHashMap::default(),
             cached_territory: serde_json::Value::Null,
+            territory_frontiers: HashMap::default(),
+            territory_rng: ChaCha8Rng::seed_from_u64(seed ^ 0x7e55_0002),
+            territory_revision: 0,
+            serialized_territory_rev: 0,
+            serialized_territory_tick: 0,
             building_state_revision: 1,
             serialized_building_state_revision: 0,
             planting_revision: 1,
@@ -386,6 +391,20 @@ impl Simulation {
             }
             sim.tile_owner = owner;
         }
+        // Growth frontiers are runtime state: rebuild them from the saved
+        // territory. Sorted iteration, so every rebuild is identical and the
+        // growth pass stays deterministic after a load.
+        {
+            let mut lids: Vec<crate::intern::Sym> = sim.territory.keys().cloned().collect();
+            lids.sort_unstable_by(|a, b| a.as_str().cmp(b.as_str()));
+            for lid in &lids {
+                sim.rebuild_territory_frontier(lid);
+            }
+        }
+        // The first frame after a load ships territory whatever the revision.
+        sim.territory_revision = 1;
+        sim.serialized_territory_rev = 0;
+        sim.serialized_territory_tick = 0;
         sim.grid.enforce_ocean_border();
         sim.relocate_edge_squatters();
         // Strategy guidance existed before campaign objectives. Upgrade active

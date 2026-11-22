@@ -10,9 +10,6 @@
 
 use super::*;
 
-/// Cadence of the forge pass, in ticks.
-pub(super) const GEAR_FORGE_STEP: u64 = 500;
-
 /// Tiles a smithy's reach covers (the village around the anvil).
 const FORGE_REACH: i32 = 30;
 /// Chance per eligible adult per pass to be fitted with new gear.
@@ -22,8 +19,10 @@ pub(super) fn tick_gear_forging(sim: &mut Simulation) {
     // The lineage's working forges and smithies, by owner.
     let mut anvils: Vec<(String, i32, i32)> = Vec::new();
     for b in sim.buildings.iter() {
-        if !matches!(b.kind, BuildingKind::Forge | BuildingKind::Smithy | BuildingKind::Goldsmith)
-            || !b.is_complete()
+        if !matches!(
+            b.kind,
+            BuildingKind::Forge | BuildingKind::Smithy | BuildingKind::Goldsmith
+        ) || !b.is_complete()
         {
             continue;
         }

@@ -35,62 +35,206 @@ struct PayloadSpec {
     morale: f32,
 }
 const PAYLOADS: [PayloadSpec; 7] = [
-    PayloadSpec { name: "AP", dmg_mul: 1.15, r_mul: 0.85, fire: 0.05, rad: false, terra: false, morale: 6.0 },
-    PayloadSpec { name: "HE", dmg_mul: 0.95, r_mul: 1.25, fire: 0.25, rad: false, terra: false, morale: 10.0 },
-    PayloadSpec { name: "Thermite", dmg_mul: 0.8, r_mul: 1.0, fire: 0.85, rad: false, terra: false, morale: 8.0 },
-    PayloadSpec { name: "Pulse", dmg_mul: 0.75, r_mul: 1.1, fire: 0.0, rad: false, terra: false, morale: 24.0 },
-    PayloadSpec { name: "Chemical", dmg_mul: 0.7, r_mul: 0.9, fire: 0.0, rad: true, terra: false, morale: 14.0 },
-    PayloadSpec { name: "Fusion", dmg_mul: 1.5, r_mul: 1.35, fire: 0.5, rad: true, terra: false, morale: 18.0 },
-    PayloadSpec { name: "Antimatter", dmg_mul: 1.8, r_mul: 1.45, fire: 0.0, rad: true, terra: true, morale: 26.0 },
+    PayloadSpec {
+        name: "AP",
+        dmg_mul: 1.15,
+        r_mul: 0.85,
+        fire: 0.05,
+        rad: false,
+        terra: false,
+        morale: 6.0,
+    },
+    PayloadSpec {
+        name: "HE",
+        dmg_mul: 0.95,
+        r_mul: 1.25,
+        fire: 0.25,
+        rad: false,
+        terra: false,
+        morale: 10.0,
+    },
+    PayloadSpec {
+        name: "Thermite",
+        dmg_mul: 0.8,
+        r_mul: 1.0,
+        fire: 0.85,
+        rad: false,
+        terra: false,
+        morale: 8.0,
+    },
+    PayloadSpec {
+        name: "Pulse",
+        dmg_mul: 0.75,
+        r_mul: 1.1,
+        fire: 0.0,
+        rad: false,
+        terra: false,
+        morale: 24.0,
+    },
+    PayloadSpec {
+        name: "Chemical",
+        dmg_mul: 0.7,
+        r_mul: 0.9,
+        fire: 0.0,
+        rad: true,
+        terra: false,
+        morale: 14.0,
+    },
+    PayloadSpec {
+        name: "Fusion",
+        dmg_mul: 1.5,
+        r_mul: 1.35,
+        fire: 0.5,
+        rad: true,
+        terra: false,
+        morale: 18.0,
+    },
+    PayloadSpec {
+        name: "Antimatter",
+        dmg_mul: 1.8,
+        r_mul: 1.45,
+        fire: 0.0,
+        rad: true,
+        terra: true,
+        morale: 26.0,
+    },
 ];
 
 /// Delivery slot: interception difficulty and saturation.
 struct DeliverySpec {
     name: &'static str,
     stealth: f32,
+    /// Reserved: fire cadence weight for a future doctrine-drift pass.
+    #[allow(dead_code)]
     cadence: f32,
 }
 const DELIVERIES: [DeliverySpec; 5] = [
-    DeliverySpec { name: "Cannon", stealth: 0.0, cadence: 1.3 },
-    DeliverySpec { name: "Rocket", stealth: 0.15, cadence: 1.05 },
-    DeliverySpec { name: "Bunker-buster", stealth: 0.35, cadence: 0.75 },
-    DeliverySpec { name: "Glide", stealth: 0.55, cadence: 0.6 },
-    DeliverySpec { name: "Orbital", stealth: 0.7, cadence: 0.45 },
+    DeliverySpec {
+        name: "Cannon",
+        stealth: 0.0,
+        cadence: 1.3,
+    },
+    DeliverySpec {
+        name: "Rocket",
+        stealth: 0.15,
+        cadence: 1.05,
+    },
+    DeliverySpec {
+        name: "Bunker-buster",
+        stealth: 0.35,
+        cadence: 0.75,
+    },
+    DeliverySpec {
+        name: "Glide",
+        stealth: 0.55,
+        cadence: 0.6,
+    },
+    DeliverySpec {
+        name: "Orbital",
+        stealth: 0.7,
+        cadence: 0.45,
+    },
 ];
 
 /// Guidance slot: accuracy and decoy resistance.
 struct GuideSpec {
     name: &'static str,
     acc: f32,
+    /// Reserved: planned jamming-resistance drift.
+    #[allow(dead_code)]
     decoy_res: f32,
+    /// Reserved: fire cadence weight for a future doctrine-drift pass.
+    #[allow(dead_code)]
     cadence: f32,
 }
 const GUIDES: [GuideSpec; 5] = [
-    GuideSpec { name: "Dumb", acc: 0.3, decoy_res: 0.0, cadence: 1.4 },
-    GuideSpec { name: "Inertial", acc: 0.55, decoy_res: 0.25, cadence: 1.0 },
-    GuideSpec { name: "Precision", acc: 0.78, decoy_res: 0.5, cadence: 0.75 },
-    GuideSpec { name: "Swarm", acc: 0.68, decoy_res: 0.85, cadence: 0.9 },
-    GuideSpec { name: "Quantum", acc: 0.95, decoy_res: 1.0, cadence: 0.5 },
+    GuideSpec {
+        name: "Dumb",
+        acc: 0.3,
+        decoy_res: 0.0,
+        cadence: 1.4,
+    },
+    GuideSpec {
+        name: "Inertial",
+        acc: 0.55,
+        decoy_res: 0.25,
+        cadence: 1.0,
+    },
+    GuideSpec {
+        name: "Precision",
+        acc: 0.78,
+        decoy_res: 0.5,
+        cadence: 0.75,
+    },
+    GuideSpec {
+        name: "Swarm",
+        acc: 0.68,
+        decoy_res: 0.85,
+        cadence: 0.9,
+    },
+    GuideSpec {
+        name: "Quantum",
+        acc: 0.95,
+        decoy_res: 1.0,
+        cadence: 0.5,
+    },
 ];
 
 /// Power slot: damage amplification and wonder odds.
 struct PowerSpec {
+    /// Kept for the design-roll ledger (the weapon name cites the power slot).
+    #[allow(dead_code)]
     name: &'static str,
     dmg_mul: f32,
+    /// Reserved: fire cadence weight for a future doctrine-drift pass.
+    #[allow(dead_code)]
     cadence: f32,
     wonder: f32,
 }
 const POWERS: [PowerSpec; 5] = [
-    PowerSpec { name: "Chemical", dmg_mul: 1.0, cadence: 1.0, wonder: 0.0 },
-    PowerSpec { name: "Laser", dmg_mul: 1.1, cadence: 1.15, wonder: 0.01 },
-    PowerSpec { name: "Superconducting", dmg_mul: 1.2, cadence: 1.3, wonder: 0.02 },
-    PowerSpec { name: "Reactor", dmg_mul: 1.35, cadence: 1.5, wonder: 0.03 },
-    PowerSpec { name: "Singularity", dmg_mul: 1.55, cadence: 1.75, wonder: 0.05 },
+    PowerSpec {
+        name: "Chemical",
+        dmg_mul: 1.0,
+        cadence: 1.0,
+        wonder: 0.0,
+    },
+    PowerSpec {
+        name: "Laser",
+        dmg_mul: 1.1,
+        cadence: 1.15,
+        wonder: 0.01,
+    },
+    PowerSpec {
+        name: "Superconducting",
+        dmg_mul: 1.2,
+        cadence: 1.3,
+        wonder: 0.02,
+    },
+    PowerSpec {
+        name: "Reactor",
+        dmg_mul: 1.35,
+        cadence: 1.5,
+        wonder: 0.03,
+    },
+    PowerSpec {
+        name: "Singularity",
+        dmg_mul: 1.55,
+        cadence: 1.75,
+        wonder: 0.05,
+    },
 ];
 
 const WEAP_EPI: [&str; 10] = [
-    "Skyburner", "Earthsplitter", "Sea-Eater", "Silence", "Endsong",
-    "Annihilator", "Cloudpiercer", "Star-devourer", "Thunderclap", "Daybreak",
+    "Skyburner",
+    "Earthsplitter",
+    "Sea-Eater",
+    "Silence",
+    "Endsong",
+    "Annihilator",
+    "Cloudpiercer",
+    "Star-devourer",
+    "Thunderclap",
+    "Daybreak",
 ];
 
 /// A lineage's armament doctrine: which philosophy its arsenals pursue.
@@ -162,7 +306,6 @@ pub(super) fn armament_tier(era: Era) -> u32 {
 }
 
 impl Simulation {
-
     /// The damage soft cap a design of this tier may reach.
     fn weapon_dmg_cap(tier: u32) -> f32 {
         130.0 + tier as f32 * 14.0
@@ -182,7 +325,7 @@ impl Simulation {
             terror: r(),
             attrition: r(),
         };
-        self.weapon_doctrines.insert(lid.to_string().into(), d.clone());
+        self.weapon_doctrines.insert(lid.to_string(), d.clone());
         d
     }
 
@@ -222,7 +365,11 @@ impl Simulation {
                 0.6 + doc.saturation * 1.8,
                 0.35 + threat.point / 90.0 + doc.precision * 0.4,
                 if tier >= 5 { 0.3 + threat.point / 70.0 } else { 0.0 },
-                if tier >= 6 { 0.22 + threat.point / 55.0 } else { 0.0 },
+                if tier >= 6 {
+                    0.22 + threat.point / 55.0
+                } else {
+                    0.0
+                },
             ],
             2 => vec![
                 // Guidance: precision schools aim; evasive foes need swarm or
@@ -231,7 +378,11 @@ impl Simulation {
                 0.9,
                 0.5 + doc.precision * 1.6,
                 0.35 + threat.evade / 70.0 + doc.saturation * 0.5,
-                if tier >= 6 { 0.2 + doc.precision * 0.9 + threat.evade / 60.0 } else { 0.0 },
+                if tier >= 6 {
+                    0.2 + doc.precision * 0.9 + threat.evade / 60.0
+                } else {
+                    0.0
+                },
             ],
             _ => vec![
                 // Power: higher tiers unlock the amplifiers.
@@ -281,7 +432,7 @@ impl Simulation {
         if treasury < forge_cost {
             return None;
         }
-        let mut doc = self.doctrine_of(lineage);
+        let doc = self.doctrine_of(lineage);
         // The threat picture: the average defence suite of current enemies.
         let mut threat = WeaponDefense::default();
         let mut foes = 0;
@@ -311,7 +462,7 @@ impl Simulation {
         let mut dl = parent.map(|p| p.delivery).unwrap_or(0);
         let mut gd = parent.map(|p| p.guidance).unwrap_or(1);
         let mut pw = parent.map(|p| p.power).unwrap_or(0);
-        if let Some(p) = parent {
+        if parent.is_some() {
             match self.armory_rng.random_range(0..4u8) {
                 0 => pl = Self::pick_component(0, &doc, &threat, tier, &mut self.armory_rng),
                 1 => dl = Self::pick_component(1, &doc, &threat, tier, &mut self.armory_rng),
@@ -369,7 +520,10 @@ impl Simulation {
             dmg = dmg.min(dmg_cap);
         }
         let mk = if gen > 1 {
-            format!(" Mk.{}", ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"][(gen as usize - 1).min(7)])
+            format!(
+                " Mk.{}",
+                ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"][(gen as usize - 1).min(7)]
+            )
         } else {
             String::new()
         };
@@ -422,7 +576,8 @@ impl Simulation {
         let line = if parent.is_some_and(|p| p.lineage != lineage) {
             format!(
                 "\u{1F52D} {} reverse-engineers a captured design into the {}.",
-                wname, self.weapon_registry.last().unwrap().name
+                wname,
+                self.weapon_registry.last().unwrap().name
             )
         } else if parent.is_some() {
             // The old design retires when iterated on.
@@ -433,11 +588,17 @@ impl Simulation {
             {
                 old.retired = true;
             }
-            format!("\u{1F52D} {} reforges its arsenal: the {} (gen {}).", wname, self.weapon_registry.last().unwrap().name, gen)
+            format!(
+                "\u{1F52D} {} reforges its arsenal: the {} (gen {}).",
+                wname,
+                self.weapon_registry.last().unwrap().name,
+                gen
+            )
         } else if wonder {
             format!(
                 "\u{1F52D} A wonder weapon! The {} forges the {}.",
-                wname, self.weapon_registry.last().unwrap().name
+                wname,
+                self.weapon_registry.last().unwrap().name
             )
         } else {
             let school = if doc.terror > 0.4 {
@@ -451,7 +612,9 @@ impl Simulation {
             };
             format!(
                 "\u{1F52D} {} forges a new {} doctrine design: the {}.",
-                wname, school, self.weapon_registry.last().unwrap().name
+                wname,
+                school,
+                self.weapon_registry.last().unwrap().name
             )
         };
         push_event(&mut self.events, self.tick_count, "milestone", "world", &line);
@@ -517,14 +680,19 @@ impl Simulation {
         let g_spec = &GUIDES[gd as usize];
         let pw_spec = &POWERS[pw as usize];
         let dmg_cap = Self::weapon_dmg_cap(tier) * 1.15;
-        let dmg = ((16.0 + 26.0 * q[0]) * p_spec.dmg_mul * pw_spec.dmg_mul
+        let dmg = ((16.0 + 26.0 * q[0])
+            * p_spec.dmg_mul
+            * pw_spec.dmg_mul
             * (1.0 + 0.3 * (tier as f32 - 4.0))
             * (1.0 + 0.2 * (gen as f32 - 1.0)))
-        .min(dmg_cap);
+            .min(dmg_cap);
         let radius = ((1.2 + 0.9 * q[1]) * p_spec.r_mul + 0.12 * (gen as f32 - 1.0)).min(6.5);
         let morale = (p_spec.morale * (0.85 + 0.3 * q[2])).min(35.0);
         let epi = WEAP_EPI[self.armory_rng.random_range(0..WEAP_EPI.len() as u32) as usize];
-        let name = format!("{}·{}·{} Mk.{}·{}", p_spec.name, d_spec.name, g_spec.name, gen, epi);
+        let name = format!(
+            "{}·{}·{} Mk.{}·{}",
+            p_spec.name, d_spec.name, g_spec.name, gen, epi
+        );
         let id = self.next_weapon_id;
         self.next_weapon_id += 1;
         let w = EmergentWeapon {
@@ -601,11 +769,8 @@ impl Simulation {
                 .filter(|w| !w.retired && w.lineage == lid)
                 .cloned()
                 .collect();
-            let mature: Vec<EmergentWeapon> = active
-                .iter()
-                .filter(|w| w.fired >= MATURE_AT)
-                .cloned()
-                .collect();
+            let mature: Vec<EmergentWeapon> =
+                active.iter().filter(|w| w.fired >= MATURE_AT).cloned().collect();
             if mature.len() >= 2 && self.armory_rng.random::<f32>() < 0.30 {
                 let (wa, wb) = (mature[0].clone(), mature[1].clone());
                 self.fuse_weapon(&lid, &wa, &wb);
@@ -626,19 +791,17 @@ impl Simulation {
     /// ground burns, bystanders fall.
     fn weapon_strikes(&mut self) {
         use rand::RngExt;
-        let strikes: Vec<(String, EmergentWeapon, [i32; 2])> = self
-            .weapon_registry
-            .iter()
-            .filter(|w| !w.retired && w.dmg >= 60.0)
-            .filter_map(|w| {
-                let war = self
-                    .diplomacy
-                    .wars
-                    .iter()
-                    .find(|war| war.active() && (war.attacker == w.lineage || war.defender == w.lineage))?;
-                Some((w.lineage.clone(), w.clone(), war.front))
-            })
-            .collect();
+        let strikes: Vec<(String, EmergentWeapon, [i32; 2])> =
+            self.weapon_registry
+                .iter()
+                .filter(|w| !w.retired && w.dmg >= 60.0)
+                .filter_map(|w| {
+                    let war = self.diplomacy.wars.iter().find(|war| {
+                        war.active() && (war.attacker == w.lineage || war.defender == w.lineage)
+                    })?;
+                    Some((w.lineage.clone(), w.clone(), war.front))
+                })
+                .collect();
         for (lid, w, front) in strikes {
             if self.armory_rng.random::<f32>() >= 0.25 {
                 continue;
@@ -735,7 +898,11 @@ impl Simulation {
                     Some(crate::sim::warfare::BattleOutcome::DefenderVictory) => b.defenders.first()?,
                     _ => return None,
                 };
-                let loser = if &b.attackers[0] == winner { b.defenders.first()? } else { b.attackers.first()? };
+                let loser = if &b.attackers[0] == winner {
+                    b.defenders.first()?
+                } else {
+                    b.attackers.first()?
+                };
                 let (winner_cas, loser_cas) = if &b.attackers[0] == winner {
                     (b.casualties_a, b.casualties_d)
                 } else {
@@ -757,7 +924,11 @@ impl Simulation {
             }
             // The loser's defences grow where the blows kept landing,
             // capped by what its armament era can field.
-            let loser_era = self.lineage_eras.get(loser.as_str()).copied().unwrap_or(Era::PreStone);
+            let loser_era = self
+                .lineage_eras
+                .get(loser.as_str())
+                .copied()
+                .unwrap_or(Era::PreStone);
             let cap = 18.0 + armament_tier(loser_era) as f32 * 13.0;
             let d = self.defense_of(&loser);
             let d = WeaponDefense {
@@ -765,7 +936,7 @@ impl Simulation {
                 armor: (d.armor + loser_cas as f32 * 0.5).min(cap),
                 evade: (d.evade + loser_cas as f32 * 0.3).min(cap),
             };
-            self.weapon_defenses.insert(loser.clone().into(), d);
+            self.weapon_defenses.insert(loser.clone(), d);
             // Doctrine drift: the winner's school leans toward what its
             // designs actually do.
             if let Some(doc) = self.weapon_doctrines.get_mut(&winner) {
@@ -807,7 +978,12 @@ mod tests {
     #[test]
     fn component_lottery_respects_era_gates() {
         let mut rng = ChaCha8Rng::seed_from_u64(7);
-        let doc = WeaponDoctrine { precision: 0.3, saturation: 0.3, terror: 0.3, attrition: 0.3 };
+        let doc = WeaponDoctrine {
+            precision: 0.3,
+            saturation: 0.3,
+            terror: 0.3,
+            attrition: 0.3,
+        };
         let threat = WeaponDefense::default();
         for slot in 0..4u8 {
             // Tier 4: the future-only options must never come up.
@@ -864,10 +1040,13 @@ mod tests {
             born_tick: 0,
             retired: false,
         };
-        let m = lineage_weapon_multiplier(&[w.clone()], Some("l"), 4);
+        let m = lineage_weapon_multiplier(std::slice::from_ref(&w), Some("l"), 4);
         assert!((m - 1.35).abs() < 1e-3, "capped design gives 1.35x, got {m}");
         assert_eq!(lineage_weapon_multiplier(&[], Some("l"), 4), 1.0);
-        assert_eq!(lineage_weapon_multiplier(&[w.clone()], Some("other"), 4), 1.0);
+        assert_eq!(
+            lineage_weapon_multiplier(std::slice::from_ref(&w), Some("other"), 4),
+            1.0
+        );
         // Retired designs do not count.
         let mut retired = w.clone();
         retired.retired = true;
@@ -880,7 +1059,11 @@ mod tests {
         let mut sim = Simulation::new(88);
         // Put the lineage at the firearms era with a funded treasury.
         sim.lineage_eras.insert("arms".into(), Era::Industrial);
-        let mut gov = crate::sim::civ::government::Government::new("arms".to_string(), crate::sim::civ::government::GovernmentKind::Chiefdom, 0);
+        let mut gov = crate::sim::civ::government::Government::new(
+            "arms".to_string(),
+            crate::sim::civ::government::GovernmentKind::Chiefdom,
+            0,
+        );
         gov.treasury = 500;
         sim.governments.insert("arms".to_string(), gov);
         let before = sim.governments.get("arms").unwrap().treasury;
@@ -894,13 +1077,21 @@ mod tests {
             .find(|w| w.id == id.unwrap())
             .cloned()
             .unwrap();
-        assert!(w.name.contains("·"), "the design is named as an architecture: {}", w.name);
+        assert!(
+            w.name.contains("·"),
+            "the design is named as an architecture: {}",
+            w.name
+        );
         assert!((4.0..=186.0).contains(&w.dmg));
         // Iterating on it mutates a slot and retires the parent.
         let gen2 = sim.forge_weapon("arms", Some(&w));
         assert!(gen2.is_some());
         assert!(sim.weapon_registry.iter().find(|x| x.id == w.id).unwrap().retired);
-        let w2 = sim.weapon_registry.iter().find(|x| x.id == gen2.unwrap()).unwrap();
+        let w2 = sim
+            .weapon_registry
+            .iter()
+            .find(|x| x.id == gen2.unwrap())
+            .unwrap();
         assert_eq!(w2.gen, 2);
         assert_eq!(w2.parent, Some(w.id));
     }
@@ -912,7 +1103,11 @@ mod tests {
         let mut sim = Simulation::new(89);
         sim.lineage_eras.insert("arms".into(), Era::Industrial);
         sim.lineage_eras.insert("victim".into(), Era::Industrial);
-        let mut gov = crate::sim::civ::government::Government::new("arms".to_string(), crate::sim::civ::government::GovernmentKind::Chiefdom, 0);
+        let mut gov = crate::sim::civ::government::Government::new(
+            "arms".to_string(),
+            crate::sim::civ::government::GovernmentKind::Chiefdom,
+            0,
+        );
         gov.treasury = 500;
         sim.governments.insert("arms".to_string(), gov);
         sim.forge_weapon("arms", None);
@@ -929,9 +1124,9 @@ mod tests {
             casualties_d: 3,
             initial_a: 10,
             initial_d: 10,
-                        routed_a: false,
+            routed_a: false,
             routed_d: false,
-started_tick: 0,
+            started_tick: 0,
             ended_tick: Some(sim.tick_count),
             outcome: Some(crate::sim::warfare::BattleOutcome::AttackerVictory),
         });

@@ -14,7 +14,6 @@
 //! `war_weariness`. Everything persists in the save; rolls come from a
 //! private stream.
 
-use crate::hashing::FxHashMap as HashMap;
 use rand::RngExt;
 use rand_chacha::ChaCha8Rng;
 
@@ -24,8 +23,22 @@ use crate::sim::simulation::Simulation;
 /// Tech word stock: prefix × field. 16 × 16 = 256 combinations, plus
 /// roman-numeral generation suffixes for a practically unbounded space.
 const EM_PREFIX: [&str; 16] = [
-    "Quantum", "Nano", "Plasma", "Genetic", "Photon", "Superconducting", "Chaotic", "Psionic",
-    "Dark-matter", "String", "Lattice", "Maglev", "Entropy", "Fusion", "Deep-space", "Graviton",
+    "Quantum",
+    "Nano",
+    "Plasma",
+    "Genetic",
+    "Photon",
+    "Superconducting",
+    "Chaotic",
+    "Psionic",
+    "Dark-matter",
+    "String",
+    "Lattice",
+    "Maglev",
+    "Entropy",
+    "Fusion",
+    "Deep-space",
+    "Graviton",
 ];
 
 /// What a field does to the lineage that masters it.
@@ -39,22 +52,102 @@ struct FieldSpec {
     medicine: bool,
 }
 const FIELDS: [FieldSpec; 16] = [
-    FieldSpec { name: "Metallurgy", combat: true, morale: false, medicine: false },
-    FieldSpec { name: "Shield Engineering", combat: false, morale: false, medicine: false },
-    FieldSpec { name: "Agronomy", combat: false, morale: false, medicine: false },
-    FieldSpec { name: "Arithmetic", combat: false, morale: false, medicine: false },
-    FieldSpec { name: "Navigation", combat: false, morale: false, medicine: false },
-    FieldSpec { name: "Fiscality", combat: false, morale: false, medicine: false },
-    FieldSpec { name: "Building Codes", combat: false, morale: false, medicine: false },
-    FieldSpec { name: "Marketcraft", combat: false, morale: false, medicine: false },
-    FieldSpec { name: "Tactics", combat: true, morale: true, medicine: false },
-    FieldSpec { name: "Medicine", combat: false, morale: false, medicine: true },
-    FieldSpec { name: "Ballistics", combat: true, morale: false, medicine: false },
-    FieldSpec { name: "Archery", combat: true, morale: false, medicine: false },
-    FieldSpec { name: "Rites & Music", combat: false, morale: true, medicine: false },
-    FieldSpec { name: "Statecraft", combat: false, morale: true, medicine: false },
-    FieldSpec { name: "Restoration", combat: false, morale: false, medicine: false },
-    FieldSpec { name: "Military Organisation", combat: true, morale: true, medicine: false },
+    FieldSpec {
+        name: "Metallurgy",
+        combat: true,
+        morale: false,
+        medicine: false,
+    },
+    FieldSpec {
+        name: "Shield Engineering",
+        combat: false,
+        morale: false,
+        medicine: false,
+    },
+    FieldSpec {
+        name: "Agronomy",
+        combat: false,
+        morale: false,
+        medicine: false,
+    },
+    FieldSpec {
+        name: "Arithmetic",
+        combat: false,
+        morale: false,
+        medicine: false,
+    },
+    FieldSpec {
+        name: "Navigation",
+        combat: false,
+        morale: false,
+        medicine: false,
+    },
+    FieldSpec {
+        name: "Fiscality",
+        combat: false,
+        morale: false,
+        medicine: false,
+    },
+    FieldSpec {
+        name: "Building Codes",
+        combat: false,
+        morale: false,
+        medicine: false,
+    },
+    FieldSpec {
+        name: "Marketcraft",
+        combat: false,
+        morale: false,
+        medicine: false,
+    },
+    FieldSpec {
+        name: "Tactics",
+        combat: true,
+        morale: true,
+        medicine: false,
+    },
+    FieldSpec {
+        name: "Medicine",
+        combat: false,
+        morale: false,
+        medicine: true,
+    },
+    FieldSpec {
+        name: "Ballistics",
+        combat: true,
+        morale: false,
+        medicine: false,
+    },
+    FieldSpec {
+        name: "Archery",
+        combat: true,
+        morale: false,
+        medicine: false,
+    },
+    FieldSpec {
+        name: "Rites & Music",
+        combat: false,
+        morale: true,
+        medicine: false,
+    },
+    FieldSpec {
+        name: "Statecraft",
+        combat: false,
+        morale: true,
+        medicine: false,
+    },
+    FieldSpec {
+        name: "Restoration",
+        combat: false,
+        morale: false,
+        medicine: false,
+    },
+    FieldSpec {
+        name: "Military Organisation",
+        combat: true,
+        morale: true,
+        medicine: false,
+    },
 ];
 
 const ROMAN: [&str; 12] = [
@@ -64,9 +157,18 @@ const ROMAN: [&str; 12] = [
 /// Idea word stock: body carries the doctrine, the suffix dresses it, and a
 /// fifth of ideas take a prefix too.
 const IDEA_PRE: [&str; 12] = [
-    "Honour-rank", "Mercantile", "Land-reclamation", "Heavenly-craft", "Ocean-going",
-    "People-first", "Natural-philosophy", "Glory", "Hundred-schools", "Great-harmony",
-    "Wu-wei", "Iron-rule",
+    "Honour-rank",
+    "Mercantile",
+    "Land-reclamation",
+    "Heavenly-craft",
+    "Ocean-going",
+    "People-first",
+    "Natural-philosophy",
+    "Glory",
+    "Hundred-schools",
+    "Great-harmony",
+    "Wu-wei",
+    "Iron-rule",
 ];
 const IDEA_POST: [&str; 6] = ["ism", "Edict", "Society", "Reform", "Way", "Movement"];
 
@@ -78,14 +180,62 @@ struct IdeaBody {
     wear: f32,
 }
 const IDEA_BODIES: [IdeaBody; 8] = [
-    IdeaBody { name: "Mercantile", desc: "trade routes are the nation's arteries", research: 0.06, combat: 0.0, wear: 0.0 },
-    IdeaBody { name: "Honour-rank", desc: "land for heads: a ladder for the warrior caste", research: 0.0, combat: 0.06, wear: 0.02 },
-    IdeaBody { name: "People-first", desc: "the people are the root of the state", research: 0.0, combat: 0.0, wear: -0.06 },
-    IdeaBody { name: "Natural-philosophy", desc: "knowledge lies in the study of things", research: 0.14, combat: 0.0, wear: 0.0 },
-    IdeaBody { name: "Land-reclamation", desc: "not an inch left fallow", research: 0.05, combat: 0.0, wear: 0.0 },
-    IdeaBody { name: "Swords-to-ploughshares", desc: "beat the swords into ploughshares", research: 0.0, combat: -0.05, wear: -0.10 },
-    IdeaBody { name: "Iron-rule", desc: "orders are followed to the letter", research: 0.03, combat: 0.02, wear: 0.0 },
-    IdeaBody { name: "Hundred-schools", desc: "a hundred flowers bloom", research: 0.10, combat: 0.0, wear: 0.0 },
+    IdeaBody {
+        name: "Mercantile",
+        desc: "trade routes are the nation's arteries",
+        research: 0.06,
+        combat: 0.0,
+        wear: 0.0,
+    },
+    IdeaBody {
+        name: "Honour-rank",
+        desc: "land for heads: a ladder for the warrior caste",
+        research: 0.0,
+        combat: 0.06,
+        wear: 0.02,
+    },
+    IdeaBody {
+        name: "People-first",
+        desc: "the people are the root of the state",
+        research: 0.0,
+        combat: 0.0,
+        wear: -0.06,
+    },
+    IdeaBody {
+        name: "Natural-philosophy",
+        desc: "knowledge lies in the study of things",
+        research: 0.14,
+        combat: 0.0,
+        wear: 0.0,
+    },
+    IdeaBody {
+        name: "Land-reclamation",
+        desc: "not an inch left fallow",
+        research: 0.05,
+        combat: 0.0,
+        wear: 0.0,
+    },
+    IdeaBody {
+        name: "Swords-to-ploughshares",
+        desc: "beat the swords into ploughshares",
+        research: 0.0,
+        combat: -0.05,
+        wear: -0.10,
+    },
+    IdeaBody {
+        name: "Iron-rule",
+        desc: "orders are followed to the letter",
+        research: 0.03,
+        combat: 0.02,
+        wear: 0.0,
+    },
+    IdeaBody {
+        name: "Hundred-schools",
+        desc: "a hundred flowers bloom",
+        research: 0.10,
+        combat: 0.0,
+        wear: 0.0,
+    },
 ];
 
 /// One invented technology.
@@ -145,12 +295,7 @@ impl Simulation {
             if pop < 6 {
                 continue;
             }
-            let gen = self
-                .emergent_techs
-                .iter()
-                .filter(|t| t.lineage == lid)
-                .count() as u32
-                + 1;
+            let gen = self.emergent_techs.iter().filter(|t| t.lineage == lid).count() as u32 + 1;
             if gen > 24 {
                 continue;
             }
@@ -165,7 +310,13 @@ impl Simulation {
                 t.desc
             );
             self.emergent_techs.push(t);
-            crate::sim::world_events::push_event(&mut self.events, self.tick_count, "milestone", "world", &line);
+            crate::sim::world_events::push_event(
+                &mut self.events,
+                self.tick_count,
+                "milestone",
+                "world",
+                &line,
+            );
             self.headlines.push_back((self.tick_count, line));
             while self.headlines.len() > 80 {
                 self.headlines.pop_front();
@@ -192,7 +343,10 @@ impl Simulation {
                                     | crate::sim::tech::buildings::BuildingKind::CityHall
                                     | crate::sim::tech::buildings::BuildingKind::Library
                             )
-                    }) || self.governments.get(lid.as_str()).is_some_and(|g| g.treasury >= 60))
+                    }) || self
+                        .governments
+                        .get(lid.as_str())
+                        .is_some_and(|g| g.treasury >= 60))
             })
             .collect();
         for lid in candidates {
@@ -207,7 +361,13 @@ impl Simulation {
                 idea.desc
             );
             self.emergent_ideas.push(idea);
-            crate::sim::world_events::push_event(&mut self.events, self.tick_count, "milestone", "world", &line);
+            crate::sim::world_events::push_event(
+                &mut self.events,
+                self.tick_count,
+                "milestone",
+                "world",
+                &line,
+            );
             self.headlines.push_back((self.tick_count, line));
             while self.headlines.len() > 80 {
                 self.headlines.pop_front();
@@ -230,8 +390,16 @@ impl Simulation {
         // Main effect: research always; combat and morale per field; a
         // 35% second effect borrows from a neighbouring field.
         let mut research = (0.03 + rng.random::<f32>() * 0.05) * t;
-        let mut combat = if field.combat { (0.05 + rng.random::<f32>() * 0.07) * t } else { 0.0 };
-        let mut wear = if field.morale { -(0.02 + rng.random::<f32>() * 0.03) * t } else { 0.0 };
+        let mut combat = if field.combat {
+            (0.05 + rng.random::<f32>() * 0.07) * t
+        } else {
+            0.0
+        };
+        let mut wear = if field.morale {
+            -(0.02 + rng.random::<f32>() * 0.03) * t
+        } else {
+            0.0
+        };
         if rng.random::<f32>() < 0.35 {
             let other = &FIELDS[rng.random_range(0..FIELDS.len() as u32) as usize];
             research += (0.02 + rng.random::<f32>() * 0.04) * t;
@@ -282,17 +450,26 @@ impl Simulation {
         } else {
             ""
         };
-        let mut jitter = |v: f32, amt: f32| ((v + (rng.random::<f32>() - 0.5) * amt) * 1000.0).round() / 1000.0;
+        let mut jitter =
+            |v: f32, amt: f32| ((v + (rng.random::<f32>() - 0.5) * amt) * 1000.0).round() / 1000.0;
         let research = jitter(body.research, 0.02).max(0.0);
         let combat = jitter(body.combat, 0.02);
         let wear = jitter(body.wear, 0.04);
         let name = format!("{pre}{} {post}", body.name);
         let mut bits = vec![format!("research +{}%", (research * 100.0).round() as i32)];
         if combat.abs() > 1e-3 {
-            bits.push(format!("{}{}%", if combat < 0.0 { "arms " } else { "arms +" }, (combat * 100.0).round() as i32));
+            bits.push(format!(
+                "{}{}%",
+                if combat < 0.0 { "arms " } else { "arms +" },
+                (combat * 100.0).round() as i32
+            ));
         }
         if wear.abs() > 1e-3 {
-            bits.push(format!("{}{}% war-weariness", if wear < 0.0 { "-" } else { "+" }, (wear.abs() * 100.0).round() as i32));
+            bits.push(format!(
+                "{}{}% war-weariness",
+                if wear < 0.0 { "-" } else { "+" },
+                (wear.abs() * 100.0).round() as i32
+            ));
         }
         EmergentIdea {
             lineage: lineage.to_string(),
@@ -354,7 +531,11 @@ mod tests {
         for gen in 1..=30u32 {
             let t = Simulation::invent_tech("l", gen, &mut rng);
             assert!(!t.name.is_empty());
-            assert!(t.research > 0.0 && t.research < 0.2, "research bounded: {}", t.research);
+            assert!(
+                t.research > 0.0 && t.research < 0.2,
+                "research bounded: {}",
+                t.research
+            );
             assert!(t.combat >= 0.0 && t.combat < 0.35, "combat bounded: {}", t.combat);
             assert!(t.wear <= 0.0 && t.wear > -0.15, "wear bounded: {}", t.wear);
         }
@@ -371,7 +552,8 @@ mod tests {
         sim.lineage_eras.insert("l".into(), Era::Bronze);
         // A pile of inventions multiplies but stays capped.
         for k in 1..=40u32 {
-            sim.emergent_techs.push(Simulation::invent_tech("l", k, &mut sim.emergent_rng));
+            sim.emergent_techs
+                .push(Simulation::invent_tech("l", k, &mut sim.emergent_rng));
         }
         assert!(sim.emergent_research_mul("l") <= 2.0);
         assert!(sim.emergent_research_mul("l") > 1.0);

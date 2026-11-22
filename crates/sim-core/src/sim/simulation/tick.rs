@@ -76,7 +76,9 @@ impl Simulation {
         // Atmosphere: advect the coarse moisture field and let soaked cells
         // break into weather. Runs before `tick_weather` so the supply
         // multiplier reflects the current beat.
-        if self.tick_count.is_multiple_of(crate::sim::world_events::ATMOSPHERE_STEP)
+        if self
+            .tick_count
+            .is_multiple_of(crate::sim::world_events::ATMOSPHERE_STEP)
             && self.tick_count > 0
         {
             self.tick_atmosphere();
@@ -203,6 +205,13 @@ impl Simulation {
         // population history, so it must not enter the era transition stream.
         if self.tick_count % 1200 == 600 {
             self.tick_settlements();
+        }
+
+        // Organic territory growth: borders creep along each lineage's
+        // frontier on a visible cadence, and dead tribes' land dissolves
+        // (see `simulation::territory`).
+        if self.tick_count.is_multiple_of(territory::TERRITORY_GROWTH_STEP) {
+            self.tick_territory_growth();
         }
 
         // Baseline discoveries keep the 600-tick multiples: their thresholds are absolute ticks (fire at 1200,
@@ -698,9 +707,7 @@ impl Simulation {
         // Ecology: the Lotka-Volterra pass (grass → grazers → predators)
         // runs just before the animals so this tick's hunters see fresh
         // raid flags and a fresh kill budget.
-        if self.tick_count > 0
-            && self.tick_count % crate::sim::simulation::ecology::ECOLOGY_STEP == 7
-        {
+        if self.tick_count > 0 && self.tick_count % crate::sim::simulation::ecology::ECOLOGY_STEP == 7 {
             self.tick_ecology();
         }
         self.tick_animals(&org_idx_by_id);

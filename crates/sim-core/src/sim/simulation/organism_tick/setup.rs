@@ -97,18 +97,20 @@ impl Simulation {
             }
         }
 
-        // Passive territory: organisms gradually stamp their lineage onto land they inhabit.
-        // Those with borders/territory discovery claim a wider radius around home.
+        // Passive territory seeding: a lineage's first founding camp claims a
+        // small patch around its home. Everything after that is the organic
+        // growth pass (simulation::territory), which creeps borders along the
+        // frontier instead of stamping a static disc over and over.
         if self.tick_count % 40 == (idx as u64 % 40) {
-            let has_borders = self.organisms[idx].discoveries.has(Hot::Territory)
-                || self.organisms[idx].discoveries.has(Hot::Borders);
-            let (hx, hy) = (
-                self.organisms[idx].home_x as i32,
-                self.organisms[idx].home_y as i32,
-            );
             let lid = self.organisms[idx].lineage_id;
-            let radius = if has_borders { 4 } else { 1 };
-            self.claim_territory(&lid, hx, hy, radius);
+            let no_land = self.territory.get(&lid).is_none_or(|tiles| tiles.is_empty());
+            if no_land {
+                let (hx, hy) = (
+                    self.organisms[idx].home_x as i32,
+                    self.organisms[idx].home_y as i32,
+                );
+                self.claim_territory(&lid, hx, hy, 1);
+            }
         }
 
         // Rival territory pressure: being on a rival's claimed tile

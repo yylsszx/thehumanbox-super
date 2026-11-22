@@ -44,9 +44,7 @@ pub fn apply(ctx: &mut ActionCtx) -> f32 {
     }
     {
         let me = &mut ctx.sim.organisms[ctx.idx];
-        me.health = (me.health - 0.04 * (1.0 - g_foe.mitigation.min(0.5)) + lifesteal)
-            .max(0.0)
-            .min(1.0);
+        me.health = (me.health - 0.04 * (1.0 - g_foe.mitigation.min(0.5)) + lifesteal).clamp(0.0, 1.0);
         me.mark_harm(crate::organism::organism::Harm::Fight, ctx.tick);
     }
     let their = ctx.sim.organisms[ki].lineage_id;

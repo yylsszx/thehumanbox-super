@@ -136,7 +136,6 @@ fn territory_state(sim: &Simulation) -> TerritoryState {
 
 #[test]
 fn territory_claims_match_the_sorting_version() {
-    let mut evicting_claims = 0;
     for seed in [7u64, 42] {
         let mut fast = lived_in(seed, 300);
         let mut original = lived_in(seed, 300);
@@ -166,21 +165,146 @@ fn territory_claims_match_the_sorting_version() {
             let cx = 150 + (next() % 50) as i32 + if step % 97 == 0 { -190 } else { 0 };
             let cy = 100 + (next() % 40) as i32;
             let radius = [1, 3, 4, 6, 6][(next() % 5) as usize];
-            let before = fast.territory.get(lineage.as_str()).map_or(0, |t| t.len());
             fast.claim_territory(lineage, cx, cy, radius);
             original.claim_territory_reference(lineage, cx, cy, radius);
-            evicting_claims += usize::from(before + 1 > 400 && radius >= 3);
             assert_eq!(
                 territory_state(&fast),
                 territory_state(&original),
                 "seed {seed} step {step}"
             );
         }
+        // Claims are cap-free now (the growth pass owns territory size), so a
+        // heavily claimed lineage holds more than the old 400-tile cap.
         let largest = fast.territory.values().map(|t| t.len()).max().unwrap_or(0);
-        assert_eq!(largest, 400, "no lineage ever filled its territory");
+        assert!(
+            largest > 400,
+            "a lineage should hold more than the old cap: {largest}"
+        );
     }
+}
+
+/// The lineage with the most living people, as (id, population).
+fn biggest_lineage(sim: &Simulation) -> (String, u32) {
+    let mut counts: HashMap<String, u32> = HashMap::default();
+    for org in sim.organisms.iter().filter(|o| o.alive) {
+        *counts.entry(org.lineage_id.to_string()).or_insert(0) += 1;
+    }
+    counts
+        .into_iter()
+        .max_by_key(|(id, count)| (*count, id.clone()))
+        .expect("a world with people")
+}
+
+#[test]
+fn organic_growth_creeps_borders_and_respects_the_cap() {
+    let mut sim = lived_in(11, 900);
+    let (lid, pop) = biggest_lineage(&sim);
+    // The people must know where the tribe ends for the cap to scale with
+    // them; hand them the borders discovery.
+    for org in sim.organisms.iter_mut() {
+        if org.alive && org.lineage_id.as_str() == lid {
+            org.discoveries.insert("Territory".to_string());
+        }
+    }
+    // Seed: the founding camp's small patch. Clear whatever the lineage
+    // gathered during the 900 ticks first, so the seed is the true start.
+    let org = sim
+        .organisms
+        .iter()
+        .find(|o| o.alive && o.lineage_id.as_str() == lid)
+        .expect("a living member");
+    let (hx, hy) = (org.home_x as i32, org.home_y as i32);
+    sim.territory.shift_remove(lid.as_str());
+    sim.tile_owner.retain(|_, owner| owner.as_str() != lid);
+    sim.claim_territory(&lid, hx, hy, 1);
+    let start = sim.territory.get(lid.as_str()).map_or(0, |t| t.len());
+    assert!(start <= 5, "the seed patch is small: {start}");
+    let cap = (24 + pop as usize * 6).min(1600);
+
+    // Creep for many passes: borders grow along the frontier.
+    for _ in 0..600 {
+        sim.tick_territory_growth();
+    }
+    let size = sim.territory.get(lid.as_str()).map_or(0, |t| t.len());
     assert!(
-        evicting_claims > 50,
-        "too few claims had to evict: {evicting_claims}"
+        size <= cap,
+        "territory stays within what its people hold: {size} > {cap}"
     );
+    assert!(size > start + 10, "borders crept outward: {start} -> {size}");
+
+    // Organic, not stamped: the whole territory is 4-connected to the seed
+    // patch, because every grown tile was claimed next to owned land.
+    let initial: std::collections::HashSet<(i32, i32)> = sim
+        .territory
+        .get(lid.as_str())
+        .map(|t| t.iter().copied().collect())
+        .unwrap_or_default();
+    for _ in 0..600 {
+        sim.tick_territory_growth();
+    }
+    let tiles: std::collections::HashSet<(i32, i32)> = sim
+        .territory
+        .get(lid.as_str())
+        .map(|t| t.iter().copied().collect())
+        .unwrap_or_default();
+    let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+    let mut queue: std::collections::VecDeque<(i32, i32)> = std::collections::VecDeque::new();
+    queue.push_back((hx, hy));
+    seen.insert((hx, hy));
+    while let Some((x, y)) = queue.pop_front() {
+        for d in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let next = (x + d.0, y + d.1);
+            if tiles.contains(&next) && !seen.contains(&next) {
+                seen.insert(next);
+                queue.push_back(next);
+            }
+        }
+    }
+    assert_eq!(
+        seen.len(),
+        tiles.len(),
+        "every claimed tile is reachable from the seed"
+    );
+
+    // Growth never steals another tribe's sovereign land: every NEW tile was
+    // unowned when it was claimed (the seed disc may legitimately overlap).
+    let stolen: Vec<(i32, i32)> = tiles
+        .iter()
+        .copied()
+        .filter(|t| !initial.contains(t))
+        .filter(|t| sim.tile_owner.get(t).is_some_and(|owner| owner.as_str() != lid))
+        .collect();
+    assert!(stolen.is_empty(), "growth claimed owned land: {stolen:?}");
+}
+
+#[test]
+fn dead_tribes_borders_dissolve() {
+    let mut sim = lived_in(23, 900);
+    let (lid, _) = biggest_lineage(&sim);
+    let org = sim
+        .organisms
+        .iter()
+        .find(|o| o.alive && o.lineage_id.as_str() == lid)
+        .expect("a living member");
+    let (hx, hy) = (org.home_x as i32, org.home_y as i32);
+    sim.claim_territory(&lid, hx, hy, 4);
+    let size = sim.territory.get(lid.as_str()).map_or(0, |t| t.len());
+    assert!(size > 30, "a claim to dissolve: {size}");
+    // The tribe dies out; nobody may hold its land.
+    for org in sim.organisms.iter_mut() {
+        if org.lineage_id.as_str() == lid {
+            org.alive = false;
+        }
+    }
+    for _ in 0..(size / 8 + 4) {
+        sim.tick_territory_growth();
+    }
+    let left = sim.territory.get(lid.as_str()).map_or(0, |t| t.len());
+    assert_eq!(left, 0, "a dead tribe's borders dissolved");
+    let lingering = sim
+        .tile_owner
+        .iter()
+        .filter(|(_, owner)| owner.as_str() == lid)
+        .count();
+    assert_eq!(lingering, 0, "the inverse map dropped the dissolved tiles too");
 }

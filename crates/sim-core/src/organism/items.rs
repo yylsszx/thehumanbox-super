@@ -132,23 +132,19 @@ const fn item(
 /// 5 Modern+, 6 Information+.
 pub const ITEM_TABLE: &[ItemDef] = &[
     // ---------- weapons: swords ----------
-    item("sword1", "a rust-eaten shortsword", GearSlot::Weapon, 1, 0, 0)
-        .with_dmg(5.0),
-    item("sword2", "an iron-cast longsword", GearSlot::Weapon, 2, 0, 1)
-        .with_dmg(11.0),
+    item("sword1", "a rust-eaten shortsword", GearSlot::Weapon, 1, 0, 0).with_dmg(5.0),
+    item("sword2", "an iron-cast longsword", GearSlot::Weapon, 2, 0, 1).with_dmg(11.0),
     item("sword3", "a golden holy sword", GearSlot::Weapon, 3, 3, 2)
         .with_dmg(18.0)
         .with_crit(5.0),
-    item("wood_club", "a rough wooden club", GearSlot::Weapon, 0, 0, 0)
-        .with_dmg(2.0),
+    item("wood_club", "a rough wooden club", GearSlot::Weapon, 0, 0, 0).with_dmg(2.0),
     item("iron_dagger", "an iron dagger", GearSlot::Weapon, 1, 0, 1)
         .with_dmg(6.0)
         .with_crit(8.0),
     item("katana", "a katana", GearSlot::Weapon, 3, 2, 3)
         .with_dmg(16.0)
         .with_crit(12.0),
-    item("elf_blade", "an elven blade", GearSlot::Weapon, 3, 2, 3)
-        .with_dmg(15.0),
+    item("elf_blade", "an elven blade", GearSlot::Weapon, 3, 2, 3).with_dmg(15.0),
     item("flame_sword", "a flame-edged sword", GearSlot::Weapon, 4, 3, 3)
         .with_dmg(22.0)
         .with_thorns(6.0),
@@ -164,11 +160,25 @@ pub const ITEM_TABLE: &[ItemDef] = &[
     // ---------- weapons: axes and hammers ----------
     item("battle_axe", "a battle axe", GearSlot::Weapon, 2, 0, 1).with_dmg(14.0),
     item("warhammer", "a war hammer", GearSlot::Weapon, 3, 1, 2).with_dmg(17.0),
-    item("berserker_axe", "a berserker's great axe", GearSlot::Weapon, 4, 2, 2)
-        .with_dmg(24.0),
-    item("executioner_axe", "an executioner's axe", GearSlot::Weapon, 5, 2, 3)
-        .with_dmg(28.0)
-        .with_crit(8.0),
+    item(
+        "berserker_axe",
+        "a berserker's great axe",
+        GearSlot::Weapon,
+        4,
+        2,
+        2,
+    )
+    .with_dmg(24.0),
+    item(
+        "executioner_axe",
+        "an executioner's axe",
+        GearSlot::Weapon,
+        5,
+        2,
+        3,
+    )
+    .with_dmg(28.0)
+    .with_crit(8.0),
     item("thunder_hammer", "a thunder hammer", GearSlot::Weapon, 5, 4, 3)
         .with_dmg(30.0)
         .with_crit(15.0),
@@ -177,8 +187,7 @@ pub const ITEM_TABLE: &[ItemDef] = &[
         .with_thorns(8.0),
     item("pickaxe", "a miner's pick", GearSlot::Weapon, 1, 0, 1).with_dmg(6.0),
     // ---------- weapons: spears ----------
-    item("hunting_spear", "a hunting spear", GearSlot::Weapon, 2, 0, 0)
-        .with_dmg(12.0),
+    item("hunting_spear", "a hunting spear", GearSlot::Weapon, 2, 0, 0).with_dmg(12.0),
     item("dragon_fang", "a dragon-fang spear", GearSlot::Weapon, 4, 3, 3)
         .with_dmg(23.0)
         .with_crit(6.0),
@@ -188,8 +197,7 @@ pub const ITEM_TABLE: &[ItemDef] = &[
     item("scythe", "a reaper's scythe", GearSlot::Weapon, 5, 4, 3)
         .with_dmg(26.0)
         .with_lifesteal(20.0),
-    item("dragon_slayer", "a dragonslayer blade", GearSlot::Weapon, 5, 4, 3)
-        .with_dmg(30.0),
+    item("dragon_slayer", "a dragonslayer blade", GearSlot::Weapon, 5, 4, 3).with_dmg(30.0),
     // ---------- weapons: bows ----------
     item("short_bow", "a short bow", GearSlot::Weapon, 1, 0, 0)
         .with_dmg(3.0)
@@ -325,8 +333,7 @@ pub const ITEM_TABLE: &[ItemDef] = &[
         .with_dmg(8.0)
         .with_crit(8.0),
     // ---------- shields ----------
-    item("round_shield", "a round wooden shield", GearSlot::Shield, 0, 0, 0)
-        .with_armor(4.0),
+    item("round_shield", "a round wooden shield", GearSlot::Shield, 0, 0, 0).with_armor(4.0),
     item("wood_shield", "a wooden shield", GearSlot::Shield, 1, 0, 0).with_armor(6.0),
     item("kite_shield", "a kite shield", GearSlot::Shield, 2, 0, 2)
         .with_armor(10.0)
@@ -346,12 +353,18 @@ pub const ITEM_TABLE: &[ItemDef] = &[
     item("holy_aegis", "a holy aegis", GearSlot::Shield, 4, 3, 3)
         .with_armor(22.0)
         .with_regen(0.5),
-    item("mithril_shield", "a mithril shield", GearSlot::Shield, 5, 3, 3)
-        .with_armor(24.0),
-    item("dragon_shield", "a dragon-crested shield", GearSlot::Shield, 5, 4, 3)
-        .with_armor(26.0)
-        .with_hp(20.0)
-        .with_thorns(8.0),
+    item("mithril_shield", "a mithril shield", GearSlot::Shield, 5, 3, 3).with_armor(24.0),
+    item(
+        "dragon_shield",
+        "a dragon-crested shield",
+        GearSlot::Shield,
+        5,
+        4,
+        3,
+    )
+    .with_armor(26.0)
+    .with_hp(20.0)
+    .with_thorns(8.0),
     // ---------- boots ----------
     item("worn_sandal", "a worn sandal", GearSlot::Boots, 0, 0, 0),
     item("leather_boots", "leather boots", GearSlot::Boots, 1, 0, 0),
@@ -402,31 +415,22 @@ pub const ITEM_TABLE: &[ItemDef] = &[
         .with_armor(6.0)
         .with_thorns(6.0),
     item("eagle_eye", "an eagle-eye stone", GearSlot::Amulet, 2, 1, 0).with_crit(8.0),
-    item("vampire_fang", "a vampire's fang", GearSlot::Amulet, 3, 2, 2)
-        .with_lifesteal(15.0),
+    item("vampire_fang", "a vampire's fang", GearSlot::Amulet, 3, 2, 2).with_lifesteal(15.0),
     item("holy_symbol", "a holy symbol", GearSlot::Amulet, 3, 1, 2).with_regen(0.5),
     item("moon_pendant", "a moon pendant", GearSlot::Amulet, 3, 2, 2).with_hp(20.0),
     item("demon_heart", "a demon's heart", GearSlot::Amulet, 4, 3, 3)
         .with_dmg(14.0)
         .with_lifesteal(10.0),
-    item("phoenix_feather", "a phoenix feather", GearSlot::Amulet, 4, 3, 3)
-        .with_regen(1.0),
+    item("phoenix_feather", "a phoenix feather", GearSlot::Amulet, 4, 3, 3).with_regen(1.0),
     item("doom_amulet", "an amulet of doom", GearSlot::Amulet, 5, 4, 3)
         .with_dmg(16.0)
         .with_hp(16.0),
-    item(
-        "god_shard",
-        "a shard of a god",
-        GearSlot::Amulet,
-        6,
-        4,
-        3,
-    )
-    .with_dmg(12.0)
-    .with_hp(24.0)
-    .with_regen(0.8)
-    .with_crit(10.0)
-    .with_lifesteal(10.0),
+    item("god_shard", "a shard of a god", GearSlot::Amulet, 6, 4, 3)
+        .with_dmg(12.0)
+        .with_hp(24.0)
+        .with_regen(0.8)
+        .with_crit(10.0)
+        .with_lifesteal(10.0),
 ];
 
 impl ItemDef {
@@ -599,7 +603,10 @@ mod tests {
 
     #[test]
     fn the_table_spans_all_seven_slots_and_five_rarities() {
-        assert!(ITEM_TABLE.len() >= 100, "the hundred-item table survived the port");
+        assert!(
+            ITEM_TABLE.len() >= 100,
+            "the hundred-item table survived the port"
+        );
         for slot in GearSlot::ALL {
             assert!(
                 ITEM_TABLE.iter().any(|d| d.slot == slot),
@@ -641,7 +648,12 @@ mod tests {
     #[test]
     fn mitigation_caps_at_sixty_percent() {
         let mut gear = BTreeMap::new();
-        for k in ["dragon_shield", "mithril_shield", "dragon_scale", "obsidian_shell"] {
+        for k in [
+            "dragon_shield",
+            "mithril_shield",
+            "dragon_scale",
+            "obsidian_shell",
+        ] {
             equip(&mut gear, item_def(k).unwrap());
         }
         // Only one piece per slot counts: dragon_shield (armour=26+hp20)
@@ -658,7 +670,7 @@ mod tests {
         // A stone-age tier can never roll a firearm or future arm.
         for _ in 0..500 {
             if let Some(d) = roll_item(&mut rng, 0) {
-                assert!(d.tier <= 0, "tier-0 roll leaked {} (tier {})", d.key, d.tier);
+                assert!(d.tier == 0, "tier-0 roll leaked {} (tier {})", d.key, d.tier);
             }
         }
         // An Information-tier lineage can roll everything.

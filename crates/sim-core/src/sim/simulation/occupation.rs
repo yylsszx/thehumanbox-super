@@ -27,8 +27,6 @@ use super::*;
 const ANNEX_AT: f32 = 100.0;
 /// Occupation strength a war settlement annexes (the rest reverts).
 const SETTLE_AT: f32 = 70.0;
-/// Enemy occupation below this can be shouldered aside by a new push.
-const CONTESTED_AT: f32 = 25.0;
 /// Front pressure decays on this cadence.
 const FRONT_DECAY_EVERY: u64 = 30;
 /// Held: an occupier's own battle within this many tiles keeps the front.
@@ -37,6 +35,8 @@ const HELD_WITHIN: i32 = 7;
 const CONTESTED_WITHIN: i32 = 3;
 /// Cap on tracked occupied tiles; the weakest go when the front sprawls.
 const MAX_OCCUPIED: usize = 4096;
+/// One battle's front press: (centre, radius, power, presser, pressed).
+type FrontPress = ((i32, i32), i32, f32, String, String);
 
 impl Simulation {
     /// One tick of the front: every active battle presses occupation onto
@@ -44,8 +44,8 @@ impl Simulation {
     /// decay pass keeps unmaintained fronts honest. Called in the war chain
     /// right after the battles resolve.
     pub(super) fn tick_occupation(&mut self) {
-        use rand::RngExt;
-        let presses: Vec<((i32, i32), i32, f32, String, String)> = self
+        let before = self.occupation.len();
+        let presses: Vec<FrontPress> = self
             .battles
             .iter()
             .filter(|b| b.ended_tick.is_none())
@@ -67,6 +67,11 @@ impl Simulation {
             self.front_push(loc, radius, power, &pressed, &presser);
         }
         self.front_decay();
+        // The front's strength pattern feeds the territory wire view, so any
+        // change this tick marks the view dirty.
+        if self.occupation.len() != before || !self.battles.is_empty() {
+            self.territory_revision = self.territory_revision.wrapping_add(1);
+        }
     }
 
     /// Press `power` of occupation for `presser` onto tiles `pressed` owns
@@ -264,6 +269,7 @@ impl Simulation {
         if tiles.is_empty() {
             return;
         }
+        let mut territory_dirty = false;
         // Ground the occupier already owns just drops its occupation entry.
         let mut by_from: HashMap<String, Vec<(i32, i32)>> = HashMap::default();
         let mut already_mine: Vec<(i32, i32)> = Vec::new();
@@ -271,10 +277,7 @@ impl Simulation {
             self.occupation.swap_remove(&tile);
             match self.tile_owner.get(&tile) {
                 Some(owner) if owner.as_str() == to => already_mine.push(tile),
-                Some(owner) => by_from
-                    .entry(owner.as_str().to_string())
-                    .or_default()
-                    .push(tile),
+                Some(owner) => by_from.entry(owner.as_str().to_string()).or_default().push(tile),
                 None => by_from.entry(String::new()).or_default().push(tile),
             }
         }
@@ -285,8 +288,10 @@ impl Simulation {
                     set.insert(t);
                     self.tile_owner.insert(t, to.into());
                 }
+                territory_dirty = true;
             } else {
                 self.move_tiles(&from, to, &group);
+                territory_dirty = true;
             }
         }
         let _ = already_mine;
@@ -313,6 +318,9 @@ impl Simulation {
         }
         if captured {
             self.building_state_revision = self.building_state_revision.wrapping_add(1);
+        }
+        if territory_dirty {
+            self.territory_revision = self.territory_revision.wrapping_add(1);
         }
     }
 }
@@ -370,11 +378,7 @@ mod tests {
             sim.occupation.is_empty(),
             "a weak front reverts entirely at the peace table"
         );
-        let holder = sim
-            .territory
-            .get(lid.as_str())
-            .map(|s| s.len())
-            .unwrap_or(0);
+        let holder = sim.territory.get(lid.as_str()).map(|s| s.len()).unwrap_or(0);
         assert!(holder > 0, "the holder kept its land");
     }
 }
