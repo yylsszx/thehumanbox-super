@@ -454,6 +454,23 @@ export class HeatGrid {
         this.blend(i, color.r, color.g, color.b, a)
       }
     }
+    // The war occupation front: held ground in the occupier's colour, at a
+    // strength-scaled dithered overlay so it reads as "occupied, not owned".
+    for (const holding of territory.occupied ?? []) {
+      const color = parseColor(lineageColor(holding.lid))
+      for (const [fx, fy, strength] of holding.tiles) {
+        const tx = Math.round(fx)
+        const ty = Math.round(fy)
+        // A chessboard dither distinguishes occupation from ownership.
+        if ((tx + ty) % 2 !== 0) continue
+        const col = tx - ox
+        const row = ty - oy
+        if (col < 0 || col >= width || row < 0 || row >= height) continue
+        const held = Math.max(0, Math.min(100, strength)) / 100
+        const a = color.a * 0.34 * (0.35 + 0.65 * held)
+        this.blend(row * width + col, color.r, color.g, color.b, a)
+      }
+    }
   }
 
   /** Tiles of the contested border, for the pulsing white layer. */

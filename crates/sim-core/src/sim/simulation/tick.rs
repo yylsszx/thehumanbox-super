@@ -325,6 +325,9 @@ impl Simulation {
             }
             self.settle_wars();
             self.make_weary_peace();
+            // The occupation front rides with the battles: presses from
+            // every active battle, then the periodic decay pass.
+            self.tick_occupation();
             self.apply_conquests();
         }
         crate::sim::civ::building_damage::tick_building_damage(self);

@@ -722,6 +722,10 @@ impl Simulation {
             }
             WarOutcome::Tribute | WarOutcome::Peace | WarOutcome::Independence => {}
         }
+        // The peace table settles the occupation front too: ground held with
+        // real strength goes to the occupier, the rest reverts to its owner.
+        let settled = self.settle_fronts(&a, &d);
+        tiles += settled;
         let treaty_ends = now + 5_000 + self.rng.random::<u64>() % 3_000;
         if outcome == WarOutcome::Tribute {
             establish_treaty(
@@ -833,7 +837,7 @@ impl Simulation {
         taken.len() as u32
     }
 
-    fn move_tiles(&mut self, from: &str, to: &str, tiles: &[(i32, i32)]) {
+    pub(crate) fn move_tiles(&mut self, from: &str, to: &str, tiles: &[(i32, i32)]) {
         if tiles.is_empty() {
             return;
         }

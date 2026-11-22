@@ -819,6 +819,8 @@ export interface WorldState {
   territory?: {
     claimed: { lid: string; tiles: [number, number][] }[]
     contested: [number, number][]
+    /** War occupation front: tiles held by an occupier at a strength of 0..100. */
+    occupied?: { lid: string; tiles: [number, number, number][] }[]
   }
   buildings?: Building[]
   religions?: ReligionInfo[]

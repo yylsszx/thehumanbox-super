@@ -129,6 +129,11 @@ impl Simulation {
                 .iter()
                 .map(|(lid, tiles)| (*lid, tiles.iter().map(|&(x, y)| [x, y]).collect()))
                 .collect(),
+            occupation: self
+                .occupation
+                .iter()
+                .map(|(&(x, y), (lid, s))| (*lid, [x, y], *s))
+                .collect(),
             last_immigration_tick: self.last_immigration_tick,
             settlement_tiers: self.settlement_tiers.clone(),
             buildings: self.buildings.to_vec(),

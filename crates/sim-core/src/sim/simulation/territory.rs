@@ -152,46 +152,46 @@ impl Simulation {
             let Some(loser_tiles) = self.territory.get(loser.as_str()).cloned() else {
                 continue;
             };
-            let r = 14;
-            let taken: Vec<(i32, i32)> = loser_tiles
+            // The victory surge: the beaten line collapses outright where it
+            // was crushed (the inner disc annexes at once), while the ground
+            // beyond falls under occupation instead of flipping — a
+            // contestable fringe the loser can win back by counter-attacking,
+            // and that the peace table will divide by who actually holds it.
+            let inner: Vec<(i32, i32)> = loser_tiles
                 .iter()
                 .copied()
-                .filter(|&(x, y)| (x - lx).abs() <= r && (y - ly).abs() <= r)
+                .filter(|&(x, y)| (x - lx).abs().max((y - ly).abs()) <= 7)
                 .collect();
-            if taken.len() < 4 {
+            let fringe: Vec<(i32, i32)> = loser_tiles
+                .iter()
+                .copied()
+                .filter(|&(x, y)| {
+                    let cheb = (x - lx).abs().max((y - ly).abs());
+                    cheb > 7 && cheb <= 14
+                })
+                .collect();
+            let taken = inner.len() + fringe.len();
+            if taken < 4 {
                 continue;
             }
-            if let Some(lset) = self.territory.get_mut(loser.as_str()) {
-                for t in &taken {
-                    lset.swap_remove(t);
+            self.annex_tiles(winner.as_str(), &inner);
+            // A beaten army still covers its rout: the fringe is pressed but
+            // not overwhelmed, so it shows as occupied ground that decays
+            // unless the winner keeps fighting there.
+            use rand::RngExt;
+            for &(x, y) in fringe.iter() {
+                let cheb = (x - lx).abs().max((y - ly).abs());
+                let press = 12.0 * (1.0 - (cheb as f32 / 15.0) * 0.75);
+                let start = (4.0 + press + self.occupation_rng.random::<f32>() * 3.0).min(30.0);
+                let occupied = match self.occupation.get(&(x, y)) {
+                    Some((occ, _)) if occ.as_str() == winner.as_str() => false,
+                    Some((_, strength)) => *strength < 25.0,
+                    None => true,
+                };
+                if occupied {
+                    self.occupation
+                        .insert((x, y), (winner.as_str().into(), start));
                 }
-            }
-            let wset = self.territory.entry(winner.clone().into()).or_default();
-            for &t in &taken {
-                wset.insert(t);
-            }
-            let taken_set: crate::hashing::FxHashSet<(i32, i32)> = taken.iter().copied().collect();
-            let mut buildings_captured = false;
-            let winner_towns: Vec<(u32, crate::sim::civ::civ_tick::town::Town)> = self
-                .towns
-                .iter()
-                .filter(|t| t.lineage == winner)
-                .map(|t| (t.id, t.clone()))
-                .collect();
-            for b in self.buildings.iter_mut() {
-                if taken_set.contains(&(b.x, b.y)) {
-                    b.owner_lineage = Some(winner.clone().into());
-                    b.town = winner_towns
-                        .iter()
-                        .map(|(id, t)| (t.distance(b.x, b.y), *id))
-                        .filter(|&(d, _)| d <= crate::sim::civ::civ_tick::town::PARENT_REACH)
-                        .min()
-                        .map(|(_, id)| id);
-                    buildings_captured = true;
-                }
-            }
-            if buildings_captured {
-                self.building_state_revision = self.building_state_revision.wrapping_add(1);
             }
             let wname = self
                 .lineage_names
@@ -203,12 +203,19 @@ impl Simulation {
                 .get(&loser)
                 .cloned()
                 .unwrap_or_else(|| loser.clone());
-            let line = format!(
-                "\u{2694}\u{FE0F} The {} conquered {} tiles of {} land.",
-                wname,
-                taken.len(),
-                lname
-            );
+            let line = if inner.is_empty() {
+                format!(
+                    "\u{2694}\u{FE0F} The {} overran the frontier of {}.",
+                    wname, lname
+                )
+            } else {
+                format!(
+                    "\u{2694}\u{FE0F} The {} conquered {} tiles of {} land.",
+                    wname,
+                    inner.len(),
+                    lname
+                )
+            };
             push_event(&mut self.events, now, "milestone", "world", &line);
             self.headlines.push_back((now, line));
             while self.headlines.len() > 80 {

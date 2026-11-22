@@ -33,6 +33,7 @@ mod helpers;
 mod herds;
 mod lineage;
 mod memory;
+mod occupation;
 mod organism_tick;
 mod schools;
 mod separation;
@@ -271,6 +272,12 @@ pub struct Simulation {
     // lookups every tick. "Most recent wins" is fine for our attitude-
     // decay use - we just need *a* rival, not the full conflict set.
     pub(crate) tile_owner: HashMap<(i32, i32), crate::intern::Sym>,
+    // War occupation front (see `simulation::occupation`): tile → (occupier,
+    // strength 0..100). Persistent war state, saved with the world.
+    pub(crate) occupation: HashMap<(i32, i32), (crate::intern::Sym, f32)>,
+    // Private jitter stream for the front (seeded from the world seed, never
+    // the world RNG: occupation branches must not shift the world's rolls).
+    pub(crate) occupation_rng: ChaCha8Rng,
     pub(crate) cached_territory: serde_json::Value,
 }
 
@@ -438,6 +445,8 @@ impl Simulation {
             active_structure_tiles: HashSet::default(),
             field_fortifications: Vec::new(),
             settlement_tiers: HashMap::default(),
+            occupation: HashMap::default(),
+            occupation_rng: ChaCha8Rng::seed_from_u64(seed ^ 0x6dc3_1a2f),
             territory: HashMap::default(),
             tile_owner: HashMap::default(),
             cached_territory: serde_json::Value::Null,

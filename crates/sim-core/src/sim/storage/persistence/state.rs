@@ -237,6 +237,9 @@ pub struct SaveState {
     #[serde(default)]
     pub(super) territory: HashMap<crate::intern::Sym, Vec<[i32; 2]>>,
     #[serde(default)]
+    /// The war occupation front: (occupier, tile, strength 0..100).
+    pub(super) occupation: Vec<(crate::intern::Sym, [i32; 2], f32)>,
+    #[serde(default)]
     pub(super) last_immigration_tick: u64,
     #[serde(default)]
     pub(super) settlement_tiers: HashMap<String, u8>,

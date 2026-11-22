@@ -275,6 +275,12 @@ impl Simulation {
                 .into_iter()
                 .map(|(lid, tiles)| (lid, tiles.into_iter().map(|[x, y]| (x, y)).collect()))
                 .collect(),
+            occupation: state
+                .occupation
+                .into_iter()
+                .map(|(lid, [x, y], s)| ((x, y), (lid, s)))
+                .collect(),
+            occupation_rng: ChaCha8Rng::seed_from_u64(seed ^ 0x6dc3_1a2f),
             tile_owner: crate::hashing::FxHashMap::default(),
             cached_territory: serde_json::Value::Null,
             building_state_revision: 1,

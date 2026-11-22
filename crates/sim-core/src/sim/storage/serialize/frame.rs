@@ -80,6 +80,22 @@ impl Simulation {
                 .filter(|(_, c)| *c >= 2)
                 .map(|((x, y), _)| [x, y])
                 .collect();
+            // The war occupation front, grouped per occupier: tile + strength
+            // (0..100). The client paints held ground in the occupier's
+            // colour at a strength-scaled striped overlay.
+            let mut occupied_json: Vec<serde_json::Value> = Vec::new();
+            {
+                let mut by_occupier: HashMap<&crate::intern::Sym, Vec<[f32; 3]>> = HashMap::default();
+                for (tile, (lid, strength)) in self.occupation.iter() {
+                    by_occupier
+                        .entry(lid)
+                        .or_default()
+                        .push([tile.0 as f32, tile.1 as f32, *strength]);
+                }
+                for (lid, tiles) in by_occupier {
+                    occupied_json.push(json!({"lid": lid, "tiles": tiles}));
+                }
+            }
             self.cached_territory = serde_json::json!({
                 "claimed": self.territory.iter()
                     .map(|(lid, tiles)| {
@@ -87,6 +103,7 @@ impl Simulation {
                         json!({"lid": lid, "tiles": pts})
                     }).collect::<Vec<_>>(),
                 "contested": contested,
+                "occupied": occupied_json,
             });
 
             self.slow_compute_tick = self.tick_count;
