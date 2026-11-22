@@ -9,6 +9,7 @@ use crate::world::grid::WorldGrid;
 
 mod battles;
 mod march;
+pub(crate) mod neuro;
 mod spawning;
 #[cfg(test)]
 mod tests;

@@ -1,4 +1,5 @@
 use crate::sim::simulation::Simulation;
+use rand::RngExt;
 use crate::sim::world_events::push_event;
 
 impl Simulation {
@@ -16,14 +17,37 @@ impl Simulation {
             return 0.0;
         }
 
-        let dmg = if ambush { 0.10 } else { 0.06 };
-        self.organisms[ti].health = (self.organisms[ti].health - dmg).max(0.0);
-        self.organisms[ti].mark_harm(crate::organism::organism::Harm::War, self.tick_count);
-        self.organisms[ti].fear_level = (self.organisms[ti].fear_level + 0.15).min(1.0);
+        // Neural hit roll (pwb's acc head): raids can now miss — a spry,
+        // wary target under tree cover slips the blow.
+        let f = crate::sim::civ::warfare::neuro::acc_features(
+            &self.organisms[idx],
+            &self.organisms[ti],
+            &self.grid,
+        );
+        let p = crate::sim::civ::warfare::neuro::neuro_acc(&f);
+        let landed = self.rng.random::<f32>() < p;
 
         let their = self.organisms[ti].lineage_id;
         self.organisms[idx].update_attitude(&their, -0.10);
         self.organisms[ti].update_attitude(&lid, -0.15);
+
+        if !landed {
+            let nm = self.organisms[idx].name.clone();
+            push_event(
+                &mut self.events,
+                self.tick_count,
+                "challenge",
+                &nm,
+                &format!("struck at a rival from {}, but missed", their),
+            );
+            self.organisms[idx].think("the raid was dodged", self.tick_count);
+            return 0.004;
+        }
+
+        let dmg = if ambush { 0.10 } else { 0.06 };
+        self.organisms[ti].health = (self.organisms[ti].health - dmg).max(0.0);
+        self.organisms[ti].mark_harm(crate::organism::organism::Harm::War, self.tick_count);
+        self.organisms[ti].fear_level = (self.organisms[ti].fear_level + 0.15).min(1.0);
 
         if self.organisms[ti].inv_food > 0 {
             self.organisms[ti].inv_food -= 1;

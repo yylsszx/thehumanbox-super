@@ -1,5 +1,5 @@
 use super::*;
-
+use super::neuro::{self, Stance};
 pub struct BattleInstitutions<'a> {
     pub lineage_eras: &'a HashMap<crate::intern::Sym, Era>,
     pub governments: &'a HashMap<String, Government>,
@@ -60,6 +60,69 @@ fn withdraw_wounded(
         }
         o.think("wounded, leaving the fight", tick);
         o.log_life(tick, "battle", "came away wounded from a battle".to_string());
+        o.wander_target = Some((o.home_x as i32, o.home_y as i32));
+        left += 1;
+        false
+    });
+    left
+}
+
+/// How a stance changes the damage a fighter deals.
+#[inline]
+fn stance_outgoing(s: Stance) -> f32 {
+    match s {
+        Stance::Advance | Stance::Hold => 1.0,
+        // Kiting trades output for safety; a fighter breaking off barely
+        // fights on the way out.
+        Stance::Kite => 0.85,
+        Stance::Withdraw => 0.5,
+    }
+}
+
+/// How a stance changes the damage a fighter takes.
+#[inline]
+fn stance_incoming(s: Stance) -> f32 {
+    match s {
+        Stance::Advance => 1.0,
+        // Held ground braces; kiting and withdrawal both present a moving,
+        // sparse target.
+        Stance::Hold => 0.92,
+        Stance::Kite | Stance::Withdraw => 0.75,
+    }
+}
+
+/// Fighters the neural stance pass has judged beaten — still healthy but
+/// badly outmatched — break off before the wound forces it, mirroring pwb's
+/// "散兵劣势撤整" rule. A side that pulls its doomed out early keeps them
+/// alive for the next war.
+fn disengage_outmatched(
+    ids: &mut Vec<String>,
+    index: &HashMap<String, usize>,
+    organisms: &mut [crate::organism::organism::Organism],
+    stances: &[(usize, Stance)],
+    tick: u64,
+) -> u32 {
+    let beaten: HashSet<usize> = stances
+        .iter()
+        .filter(|&&(_, s)| s == Stance::Withdraw)
+        .map(|&(i, _)| i)
+        .collect();
+    if beaten.is_empty() {
+        return 0;
+    }
+    let mut left = 0;
+    ids.retain(|id| {
+        let Some(&i) = index.get(id) else {
+            return true;
+        };
+        // Only those the network flags AND whose health is already sagging
+        // go: a fresh fighter with a bad matchup presses on.
+        if !beaten.contains(&i) || !organisms[i].alive || organisms[i].health >= 0.6 {
+            return true;
+        }
+        let o = &mut organisms[i];
+        o.think("outmatched, falling back", tick);
+        o.log_life(tick, "battle", "broke off a losing battle".to_string());
         o.wander_target = Some((o.home_x as i32, o.home_y as i32));
         left += 1;
         false
@@ -170,6 +233,43 @@ pub fn tick_battles(
         };
         let att_here: Vec<usize> = att_alive.iter().copied().filter(at_battle).collect();
         let def_here: Vec<usize> = def_alive.iter().copied().filter(at_battle).collect();
+
+        // Neural stance pass: every fighter present sizes up their opposite
+        // number (advance / hold / kite / withdraw) before blows land. The
+        // outmatched disengage after the exchange instead of dying in place.
+        let stances_for = |here: &[usize], foes: &[usize], era: Era| {
+            here.iter()
+                .enumerate()
+                .map(|(k, &i)| {
+                    let stance = if foes.is_empty() {
+                        Stance::Advance
+                    } else {
+                        let foe = &organisms[foes[k % foes.len()]];
+                        let o = &organisms[i];
+                        let dist = (o.x - foe.x).abs().max(o.y - foe.y).abs();
+                        let f = neuro::stance_features(
+                            o,
+                            foe,
+                            combat_style_for(o, era),
+                            dist,
+                            here.len().saturating_sub(1),
+                        );
+                        neuro::neuro_stance(&f)
+                    };
+                    (i, stance)
+                })
+                .collect::<Vec<_>>()
+        };
+        let att_stances = stances_for(&att_here, &def_here, att_era);
+        let def_stances = stances_for(&def_here, &att_here, def_era);
+        let stance_by_org = |i: usize, stances: &[(usize, Stance)]| {
+            stances
+                .iter()
+                .find(|&&(j, _)| j == i)
+                .map(|&(_, s)| s)
+                .unwrap_or(Stance::Advance)
+        };
+
         let pairs = att_here.len().min(def_here.len());
         for k in 0..pairs {
             let ai = att_here[k];
@@ -178,6 +278,19 @@ pub fn tick_battles(
             let def_style = combat_style_for(&organisms[di], def_era);
             let a_bonus = soldier_bonus(&organisms[ai]) + att_policy_bonus;
             let d_bonus = soldier_bonus(&organisms[di]) + def_policy_bonus;
+            // Neural hit rolls: one probability draw and one damage-variance
+            // draw per side, taken unconditionally so the RNG stream stays
+            // dense whatever the network says. A hit lands 1.16x so the
+            // expected damage of an exchange matches the old always-hit
+            // variance formula (E[1.16 * p] ~= E[0.7 + 0.6u] = 1.0).
+            let a_f = neuro::acc_features(&organisms[ai], &organisms[di], institutions.grid);
+            let d_f = neuro::acc_features(&organisms[di], &organisms[ai], institutions.grid);
+            let p_a = neuro::neuro_acc(&a_f);
+            let p_d = neuro::neuro_acc(&d_f);
+            let (roll_a, var_a) = (rng.random::<f32>(), rng.random::<f32>());
+            let (roll_d, var_d) = (rng.random::<f32>(), rng.random::<f32>());
+            let a_stance = stance_by_org(ai, &att_stances);
+            let d_stance = stance_by_org(di, &def_stances);
             // A defender behind a completed wall/field fortification takes
             // reduced damage. This multiplier has to sit on `a_dmg` (the
             // damage dealt *to* the defender); putting it on `d_dmg` made a
@@ -186,10 +299,18 @@ pub fn tick_battles(
             let a_dmg = base_dmg
                 * damage_multiplier(att_style)
                 * (1.0 + a_bonus)
-                * (0.7 + rng.random::<f32>() * 0.6)
+                * stance_outgoing(a_stance)
+                * stance_incoming(d_stance)
+                * (0.8 + var_a * 0.4)
+                * if roll_a < p_a { 1.16 } else { 0.0 }
                 * if defender_wall_bonus { 0.65 } else { 1.0 };
-            let d_dmg =
-                base_dmg * damage_multiplier(def_style) * (1.0 + d_bonus) * (0.7 + rng.random::<f32>() * 0.6);
+            let d_dmg = base_dmg
+                * damage_multiplier(def_style)
+                * (1.0 + d_bonus)
+                * stance_outgoing(d_stance)
+                * stance_incoming(a_stance)
+                * (0.8 + var_d * 0.4)
+                * if roll_d < p_d { 1.16 } else { 0.0 };
 
             organisms[di].health = (organisms[di].health - a_dmg).max(0.0);
             organisms[di].mark_harm(crate::organism::organism::Harm::War, tick);
@@ -221,6 +342,8 @@ pub fn tick_battles(
             tick,
             rng,
         );
+        disengage_outmatched(&mut battle.attacker_orgs, &index, organisms, &att_stances, tick);
+        disengage_outmatched(&mut battle.defender_orgs, &index, organisms, &def_stances, tick);
 
         let att_now = battle
             .attacker_orgs

@@ -74,6 +74,24 @@ impl Simulation {
     fn flight(&self, s: &Sensed) -> Option<((f32, f32, f32), bool)> {
         let home = (self.organisms[s.idx].home_x, self.organisms[s.idx].home_y);
         flight_threat(s.wolf_threat, s.threat_summoned, s.summoned_threat).filter(|&(_, from_pack)| {
+            // Neural fight-or-flee (pwb's RL flight head): a healthy, armed,
+            // experienced person sizes the beast up instead of bolting from
+            // every wolf in sight; the dying and outmatched still run. Divine
+            // packs keep their old terror — no one stands off a summoned horde.
+            if !from_pack {
+                if let Some((dist, _, _)) = s.wolf_threat {
+                    let f = crate::sim::civ::warfare::neuro::flight_features(
+                        &self.organisms[s.idx],
+                        beast_might(s.threat_kind),
+                        dist,
+                    );
+                    if crate::sim::civ::warfare::neuro::neuro_flight(&f)
+                        == crate::sim::civ::warfare::neuro::FLIGHT_FIGHT
+                    {
+                        return false;
+                    }
+                }
+            }
             !(from_pack && (home.0 - s.ox).abs() < 1.0 && (home.1 - s.oy).abs() < 1.0)
         })
     }
@@ -329,6 +347,20 @@ fn flight_threat(
     match wild {
         Some(w) if w.0 <= 2.5 && !wild_is_summoned => Some((w, false)),
         _ => pack.map(|p| (p, true)),
+    }
+}
+
+/// A beast's might, for the neural fight-or-flee check: roughly the damage
+/// class it deals in the bite table, normalized beside a person's arms.
+fn beast_might(kind: crate::organism::animal::AnimalKind) -> f32 {
+    use crate::organism::animal::AnimalKind;
+    match kind {
+        AnimalKind::Dragon => 2.2,
+        AnimalKind::Demon => 1.8,
+        AnimalKind::Bear => 1.4,
+        AnimalKind::Alien => 1.3,
+        AnimalKind::Zombie => 0.9,
+        _ => 0.7,
     }
 }
 
