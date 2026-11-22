@@ -357,6 +357,7 @@ fn battle_deaths_are_counted_in_their_year_and_written_into_the_life_story() {
         &mut events,
         &mut sim.history,
         BattleInstitutions {
+            weapon_registry: &[],
             lineage_eras: &lineage_eras,
             governments: &governments,
             buildings: &[],
@@ -509,6 +510,7 @@ fn the_badly_wounded_leave_the_battle_alive_and_go_home() {
         &mut events,
         &mut sim.history,
         BattleInstitutions {
+            weapon_registry: &[],
             lineage_eras: &lineage_eras,
             governments: &governments,
             buildings: &[],
@@ -577,6 +579,7 @@ fn a_fighter_who_is_not_at_the_battle_is_not_hurt_by_it() {
         &mut events,
         &mut sim.history,
         BattleInstitutions {
+            weapon_registry: &[],
             lineage_eras: &lineage_eras,
             governments: &governments,
             buildings: &[],

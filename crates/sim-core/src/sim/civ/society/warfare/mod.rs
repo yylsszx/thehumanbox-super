@@ -7,6 +7,7 @@ use crate::sim::tech::buildings::{Building, BuildingKind};
 use crate::sim::world_events::push_event;
 use crate::world::grid::WorldGrid;
 
+mod armory;
 mod battles;
 mod march;
 pub(crate) mod neuro;
@@ -19,6 +20,7 @@ mod wars;
 #[cfg(test)]
 mod wars_tests;
 
+pub use armory::{EmergentWeapon, WeaponDefense, WeaponDoctrine};
 pub use battles::*;
 pub use spawning::*;
 pub use treaties::*;

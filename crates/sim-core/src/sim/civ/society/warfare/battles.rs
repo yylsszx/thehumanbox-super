@@ -7,6 +7,8 @@ pub struct BattleInstitutions<'a> {
     pub field_fortifications: &'a [FieldFortification],
     pub grid: &'a WorldGrid,
     pub in_war: &'a HashSet<String>,
+    /// Forged weapon designs, for the emergent-arsenal damage multiplier.
+    pub weapon_registry: &'a [super::armory::EmergentWeapon],
 }
 
 /// A person killed in a battle. Battle deaths skip the mortality phase, so
@@ -199,6 +201,18 @@ pub fn tick_battles(
             .first()
             .and_then(|lid| institutions.lineage_eras.get(lid.as_str()).copied())
             .unwrap_or(Era::PreStone);
+        // The emergent arsenal: fighters fielding their lineage's best forged
+        // design hit up to 35% harder at the damage cap.
+        let att_wmul = super::armory::lineage_weapon_multiplier(
+            institutions.weapon_registry,
+            battle.attackers.first().map(String::as_str),
+            super::armory::armament_tier(att_era),
+        );
+        let def_wmul = super::armory::lineage_weapon_multiplier(
+            institutions.weapon_registry,
+            battle.defenders.first().map(String::as_str),
+            super::armory::armament_tier(def_era),
+        );
         let att_policy_bonus = battle
             .attackers
             .first()
@@ -299,6 +313,7 @@ pub fn tick_battles(
             let a_dmg = base_dmg
                 * damage_multiplier(att_style)
                 * (1.0 + a_bonus)
+                * att_wmul
                 * stance_outgoing(a_stance)
                 * stance_incoming(d_stance)
                 * (0.8 + var_a * 0.4)
@@ -307,6 +322,7 @@ pub fn tick_battles(
             let d_dmg = base_dmg
                 * damage_multiplier(def_style)
                 * (1.0 + d_bonus)
+                * def_wmul
                 * stance_outgoing(d_stance)
                 * stance_incoming(a_stance)
                 * (0.8 + var_d * 0.4)

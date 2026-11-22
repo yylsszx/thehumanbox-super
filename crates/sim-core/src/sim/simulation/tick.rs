@@ -308,6 +308,7 @@ impl Simulation {
                     field_fortifications: &self.field_fortifications,
                     grid: &self.grid,
                     in_war: &in_war,
+                    weapon_registry: &self.weapon_registry,
                 },
             );
             self.record_fallen_leaders(&standing);
@@ -329,6 +330,10 @@ impl Simulation {
             // every active battle, then the periodic decay pass.
             self.tick_occupation();
             self.apply_conquests();
+            // The emergent armory: cadenced forging/fusing/fielding, battle
+            // feedback into doctrines and defences.
+            self.credit_battle_feedback();
+            self.tick_armory();
         }
         crate::sim::civ::building_damage::tick_building_damage(self);
 

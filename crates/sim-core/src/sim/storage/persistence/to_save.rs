@@ -134,6 +134,10 @@ impl Simulation {
                 .iter()
                 .map(|(&(x, y), (lid, s))| (*lid, [x, y], *s))
                 .collect(),
+            weapon_doctrines: self.weapon_doctrines.clone(),
+            weapon_defenses: self.weapon_defenses.clone(),
+            weapon_registry: self.weapon_registry.clone(),
+            next_weapon_id: self.next_weapon_id,
             last_immigration_tick: self.last_immigration_tick,
             settlement_tiers: self.settlement_tiers.clone(),
             buildings: self.buildings.to_vec(),

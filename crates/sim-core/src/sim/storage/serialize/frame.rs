@@ -585,6 +585,27 @@ impl Simulation {
                 obj.insert("difficulty".to_string(), json!(self.goals.difficulty.name()));
                 obj.insert("lost_tick".to_string(), json!(self.goals.lost_tick));
                 obj.insert("territory".to_string(), self.cached_territory.clone());
+                // The emergent armory: active weapon designs per lineage, with
+                // their architecture names, damage and battle credits.
+                {
+                    let weapons: Vec<serde_json::Value> = self
+                        .weapon_registry
+                        .iter()
+                        .filter(|w| !w.retired)
+                        .map(|w| {
+                            json!({
+                                "lineage": w.lineage,
+                                "name": w.name,
+                                "gen": w.gen,
+                                "dmg": w.dmg,
+                                "radius": w.radius,
+                                "kills": w.kills,
+                                "wonder": w.wonder,
+                            })
+                        })
+                        .collect();
+                    obj.insert("armory".to_string(), serde_json::Value::Array(weapons));
+                }
                 obj.insert(
                     "lineage_names".to_string(),
                     serde_json::to_value(&self.lineage_names).unwrap(),

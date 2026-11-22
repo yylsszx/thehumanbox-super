@@ -240,6 +240,14 @@ pub struct SaveState {
     /// The war occupation front: (occupier, tile, strength 0..100).
     pub(super) occupation: Vec<(crate::intern::Sym, [i32; 2], f32)>,
     #[serde(default)]
+    pub(super) weapon_doctrines: HashMap<String, crate::sim::civ::warfare::WeaponDoctrine>,
+    #[serde(default)]
+    pub(super) weapon_defenses: HashMap<String, crate::sim::civ::warfare::WeaponDefense>,
+    #[serde(default)]
+    pub(super) weapon_registry: Vec<crate::sim::civ::warfare::EmergentWeapon>,
+    #[serde(default)]
+    pub(super) next_weapon_id: u32,
+    #[serde(default)]
     pub(super) last_immigration_tick: u64,
     #[serde(default)]
     pub(super) settlement_tiers: HashMap<String, u8>,

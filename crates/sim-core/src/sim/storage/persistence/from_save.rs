@@ -281,6 +281,11 @@ impl Simulation {
                 .map(|(lid, [x, y], s)| ((x, y), (lid, s)))
                 .collect(),
             occupation_rng: ChaCha8Rng::seed_from_u64(seed ^ 0x6dc3_1a2f),
+            weapon_doctrines: state.weapon_doctrines,
+            weapon_defenses: state.weapon_defenses,
+            weapon_registry: state.weapon_registry,
+            next_weapon_id: state.next_weapon_id.max(1),
+            armory_rng: ChaCha8Rng::seed_from_u64(seed ^ 0x1b2c_3d4e),
             tile_owner: crate::hashing::FxHashMap::default(),
             cached_territory: serde_json::Value::Null,
             building_state_revision: 1,

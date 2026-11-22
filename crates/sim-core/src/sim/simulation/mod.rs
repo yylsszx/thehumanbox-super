@@ -278,6 +278,13 @@ pub struct Simulation {
     // Private jitter stream for the front (seeded from the world seed, never
     // the world RNG: occupation branches must not shift the world's rolls).
     pub(crate) occupation_rng: ChaCha8Rng,
+    // The emergent armory (see `civ::society::warfare::armory`): doctrine
+    // drift, defensive suites, and the forged weapon designs themselves.
+    pub(crate) weapon_doctrines: HashMap<String, crate::sim::civ::warfare::WeaponDoctrine>,
+    pub(crate) weapon_defenses: HashMap<String, crate::sim::civ::warfare::WeaponDefense>,
+    pub(crate) weapon_registry: Vec<crate::sim::civ::warfare::EmergentWeapon>,
+    pub(crate) next_weapon_id: u32,
+    pub(crate) armory_rng: ChaCha8Rng,
     pub(crate) cached_territory: serde_json::Value,
 }
 
@@ -447,6 +454,11 @@ impl Simulation {
             settlement_tiers: HashMap::default(),
             occupation: HashMap::default(),
             occupation_rng: ChaCha8Rng::seed_from_u64(seed ^ 0x6dc3_1a2f),
+            weapon_doctrines: HashMap::default(),
+            weapon_defenses: HashMap::default(),
+            weapon_registry: Vec::new(),
+            next_weapon_id: 1,
+            armory_rng: ChaCha8Rng::seed_from_u64(seed ^ 0x1b2c_3d4e),
             territory: HashMap::default(),
             tile_owner: HashMap::default(),
             cached_territory: serde_json::Value::Null,
