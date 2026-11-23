@@ -547,9 +547,27 @@ describe('browser simulation scheduling', () => {
     send({ type: 'speed', tickMs: 24, stepsPerEmit: 10, speed: 50 })
     await vi.advanceTimersByTimeAsync(1200)
     expect(model.tick).toBe(500n)
-    expect(model.deltaFrame.mock.calls.length + model.fullFrame.mock.calls.length).toBeLessThanOrEqual(12)
+    // The 40 ms hot gate spaces frames about every 48 ms at this speed
+    // (~25 in 1200 ms); the old 120 ms gate gave ~10, and an ungated worker
+    // would flood ~50. 30 is the flood-proof ceiling.
+    expect(model.deltaFrame.mock.calls.length + model.fullFrame.mock.calls.length).toBeLessThanOrEqual(30)
     // Fast-forward must not multiply expensive full-terrain snapshots.
     expect(model.fullFrame).toHaveBeenCalledTimes(1)
+  })
+
+  it('widens the hot gate when the page acks frames slowly', async () => {
+    send({ type: 'speed', tickMs: 24, stepsPerEmit: 10, speed: 50 })
+    // The page digests a frame only every 96 ms: ack each window before the
+    // timers in it fire, so the gate follows the page instead of the 40 ms
+    // nominal floor (which would give ~25 frames here).
+    for (let i = 0; i < 13; i += 1) {
+      send({ type: 'emit_ack' })
+      await vi.advanceTimersByTimeAsync(96)
+    }
+    expect(model.tick).toBeGreaterThan(400n)
+    const frames = model.deltaFrame.mock.calls.length + model.fullFrame.mock.calls.length
+    expect(frames).toBeLessThanOrEqual(16)
+    expect(frames).toBeGreaterThanOrEqual(8)
   })
 
   it('refreshes cold world data by wall time even at 50x', async () => {

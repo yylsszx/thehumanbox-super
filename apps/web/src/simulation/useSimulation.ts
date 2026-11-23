@@ -408,6 +408,11 @@ export function useSimulation(source: WorldSource = 'native'): {
             setConnected(true)
           }
           enqueueMessage(m.frame)
+          // Ack the frame so the worker can pace itself: the gap between
+          // these handlers is the page's real frame-digest rate, and a
+          // congested main thread asks the worker to space frames wider
+          // rather than drowning it (see wasmWorker's emit gate).
+          if (!destroyed) worker.postMessage({ type: 'emit_ack' })
         } else if (m.type === 'ready' || m.type === 'storage_ready') {
           if (m.type === 'ready') {
             worldReady = true

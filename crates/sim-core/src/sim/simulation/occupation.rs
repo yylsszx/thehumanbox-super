@@ -35,8 +35,12 @@ const HELD_WITHIN: i32 = 7;
 const CONTESTED_WITHIN: i32 = 3;
 /// Cap on tracked occupied tiles; the weakest go when the front sprawls.
 const MAX_OCCUPIED: usize = 4096;
-/// One battle's front press: (centre, radius, power, presser, pressed).
-type FrontPress = ((i32, i32), i32, f32, String, String);
+/// One battle's front press: (centre, radius, presser power, pressed power,
+/// presser, pressed). Each side presses with its own armament.
+type FrontPress = ((i32, i32), i32, f32, f32, String, String);
+/// A battle scanned before its powers are computed: location, each side's
+/// name and each side's fighter count.
+type BattleScan = ((i32, i32), Option<String>, Option<String>, usize, usize);
 
 impl Simulation {
     /// One tick of the front: every active battle presses occupation onto
@@ -45,26 +49,39 @@ impl Simulation {
     /// right after the battles resolve.
     pub(super) fn tick_occupation(&mut self) {
         let before = self.occupation.len();
-        let presses: Vec<FrontPress> = self
+        // Collect first: the power reads need `self`, and `battles` is
+        // borrowed by the scan.
+        let raw: Vec<BattleScan> = self
             .battles
             .iter()
             .filter(|b| b.ended_tick.is_none())
-            .filter_map(|b| {
-                let presser = b.attackers.first()?.clone();
-                let pressed = b.defenders.first()?.clone();
-                if presser == pressed {
-                    return None;
-                }
-                // The strength a side has present: each fighter mustered
-                // adds a quarter unit of pressure, the field itself two.
-                let here = (b.attacker_orgs.len() + b.defender_orgs.len()).min(10);
-                let power = 2.0 + 0.25 * here as f32;
-                Some((b.location, 3, power, presser, pressed))
+            .map(|b| {
+                (
+                    b.location,
+                    b.attackers.first().cloned(),
+                    b.defenders.first().cloned(),
+                    b.attacker_orgs.len(),
+                    b.defender_orgs.len(),
+                )
             })
             .collect();
-        for (loc, radius, power, presser, pressed) in presses {
-            self.front_push(loc, radius, power, &presser, &pressed);
-            self.front_push(loc, radius, power, &pressed, &presser);
+        let mut presses: Vec<FrontPress> = Vec::new();
+        for (loc, presser, pressed, att_n, def_n) in raw {
+            let (Some(presser), Some(pressed)) = (presser, pressed) else {
+                continue;
+            };
+            if presser == pressed {
+                continue;
+            }
+            // Each side presses with the army it brought: its era arms it,
+            // its doctrine shapes the grind (see `front_power`).
+            let presser_power = self.front_power(&presser, att_n);
+            let pressed_power = self.front_power(&pressed, def_n);
+            presses.push((loc, 3, presser_power, pressed_power, presser, pressed));
+        }
+        for (loc, radius, presser_power, pressed_power, presser, pressed) in presses {
+            self.front_push(loc, radius, presser_power, &presser, &pressed);
+            self.front_push(loc, radius, pressed_power, &pressed, &presser);
         }
         self.front_decay();
         // The front's strength pattern feeds the territory wire view, so any
@@ -72,6 +89,27 @@ impl Simulation {
         if self.occupation.len() != before || !self.battles.is_empty() {
             self.territory_revision = self.territory_revision.wrapping_add(1);
         }
+    }
+
+    /// The power one side presses a front with: each fighter mustered adds a
+    /// quarter unit and the field two, then the army's armament scales it —
+    /// a line armed for its era pushes ground a stone-age mob cannot (pwb's
+    /// fronts moved at the speed of the army that pushed them), and a
+    /// saturation doctrine grinds ground faster than a precision one.
+    fn front_power(&self, presser: &str, fighters: usize) -> f32 {
+        let base = 2.0 + 0.25 * fighters.min(10) as f32;
+        let era: crate::sim::era::Era = self
+            .lineage_eras
+            .get(presser)
+            .copied()
+            .unwrap_or(crate::sim::era::Era::PreStone);
+        // 1.0 at pre-stone, ~1.5 by medieval, ~2.1 by the information age.
+        let era_mult = 1.0 + 0.12 * (era as u8 as f32);
+        let doctrine_mult = self
+            .weapon_doctrines
+            .get(presser)
+            .map_or(1.0, |d| 0.85 + d.saturation * 0.5);
+        base * era_mult * doctrine_mult
     }
 
     /// Press `power` of occupation for `presser` onto tiles `pressed` owns
@@ -380,5 +418,41 @@ mod tests {
         );
         let holder = sim.territory.get(lid.as_str()).map(|s| s.len()).unwrap_or(0);
         assert!(holder > 0, "the holder kept its land");
+    }
+
+    #[test]
+    fn an_iron_line_presses_harder_than_a_stone_age_mob() {
+        let (mut sim, _lid, _centre) = sim_with_land();
+        // No era entry: pre-stone. The same fighter count, armed for iron,
+        // must press clearly harder (pwb's fronts moved at the speed of the
+        // army that pushed them).
+        let stone = sim.front_power("invader", 10);
+        sim.lineage_eras
+            .insert("invader".into(), crate::sim::era::Era::Iron);
+        let iron = sim.front_power("invader", 10);
+        assert!(
+            iron > stone * 1.3,
+            "iron {iron} should press far harder than pre-stone {stone}"
+        );
+    }
+
+    #[test]
+    fn a_saturation_doctrine_grinds_ground_faster_than_precision() {
+        let (mut sim, _lid, _centre) = sim_with_land();
+        sim.weapon_doctrines.insert(
+            "saturation".into(),
+            crate::sim::civ::warfare::WeaponDoctrine {
+                precision: 0.2,
+                saturation: 1.0,
+                terror: 0.2,
+                attrition: 0.2,
+            },
+        );
+        let precision = sim.front_power("no_doctrine", 10);
+        let saturation = sim.front_power("saturation", 10);
+        assert!(
+            saturation > precision,
+            "saturation {saturation} should grind faster than the doctrine-less {precision}"
+        );
     }
 }

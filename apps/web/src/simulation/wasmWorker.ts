@@ -62,6 +62,7 @@ type InMsg =
   | { type: 'full_frame' }
   | { type: 'org_detail'; id: string; requestId: number }
   | { type: 'org_life'; id: string; requestId: number }
+  | { type: 'emit_ack' }
   | {
       type: 'speed'
       tickMs: number
@@ -79,6 +80,15 @@ const DEEP_FULL_EVERY_MS = 300 * WASM_BASE_TICK_MS
 // keeps fast-forward visibly smooth while staying far under one frame per
 // screen refresh.
 const HOT_EMIT_MIN_MS = 40
+// The page acks every frame it receives, and the gap between acks says how
+// fast the main thread really digests frames. When it falls behind, hot
+// frames are spaced by what the page actually manages (up to this ceiling),
+// trading frame rate for evenness: ticks keep running at full pace and only
+// their publication widens, so 40x stays smooth on a machine that cannot
+// render 25 world frames a second. Without congestion the gate stays nominal.
+const EMIT_GATE_MAX_MS = 100
+const EMIT_GATE_BACKOFF = 0.9
+const ACK_EMA_ALPHA = 0.3
 // Full world saves can be tens of megabytes and serialize synchronously on
 // this worker, pausing ticks and frame delivery. Commands and shutdowns still
 // checkpoint immediately; hidden/pagehide handlers also request a save.
@@ -110,6 +120,8 @@ let autosaveEveryMs = DEFAULT_AUTOSAVE_MS
 let frameId = 0
 let lastEmittedAt = -Infinity
 let lastDeepFullAt = -Infinity
+let lastAckAt = 0
+let ackGapEma = 0
 let lastFullFrameCostMs = 0
 let lastSaveAt = -Infinity
 let lastSaveCostMs = 0
@@ -740,8 +752,14 @@ function tickOnce() {
     // Emit every batch at or below 1x; above that, gate hot frames by the
     // smaller of the base cadence and the current tick interval, floored at
     // HOT_EMIT_MIN_MS, so fast-forward worlds interpolate at ~25 Hz instead
-    // of the old 120 ms gate (8.3 Hz) that made 40x look steppy.
-    const emitGateMs = Math.max(HOT_EMIT_MIN_MS, Math.min(WASM_BASE_TICK_MS, tickMs))
+    // of the old 120 ms gate (8.3 Hz) that made 40x look steppy. A slow main
+    // thread widens the gate (see `emit_ack`) instead of piling up work.
+    const nominalGate = Math.max(HOT_EMIT_MIN_MS, Math.min(WASM_BASE_TICK_MS, tickMs))
+    const digestGate =
+      ackGapEma > 0
+        ? Math.min(EMIT_GATE_MAX_MS, Math.max(nominalGate, ackGapEma * EMIT_GATE_BACKOFF))
+        : nominalGate
+    const emitGateMs = Math.max(nominalGate, digestGate)
     if (tickMs >= WASM_BASE_TICK_MS || performance.now() - lastEmittedAt >= emitGateMs) {
       emit(performance.now() - lastDeepFullAt >= DEEP_FULL_EVERY_MS)
       if (simFailed) return
@@ -1017,6 +1035,17 @@ self.onmessage = (e: MessageEvent) => {
         })
       }
       break
+    case 'emit_ack': {
+      // The page ran this frame's receive handler: the gap between these
+      // handlers is what the main thread can actually keep up with.
+      const now = performance.now()
+      if (lastAckAt > 0) {
+        const gap = now - lastAckAt
+        ackGapEma = ackGapEma === 0 ? gap : ackGapEma * (1 - ACK_EMA_ALPHA) + gap * ACK_EMA_ALPHA
+      }
+      lastAckAt = now
+      break
+    }
     case 'visibility': {
       const wasHiddenRunning = hiddenRunning
       hiddenPaused = msg.hidden && msg.keepRunning !== true
@@ -1143,6 +1172,10 @@ self.onmessage = (e: MessageEvent) => {
           tickMs = Math.max(MIN_WASM_TICK_MS, msg.tickMs)
           stepsPerEmit = msg.stepsPerEmit
           speed = msg.speed
+          // A new pace re-measures the page from scratch: the ack gaps left
+          // over from the old speed say nothing about the new one.
+          ackGapEma = 0
+          lastAckAt = 0
           if (tickTimer !== null) startTickTimer()
         }
         if (msg.requestId !== undefined) {
