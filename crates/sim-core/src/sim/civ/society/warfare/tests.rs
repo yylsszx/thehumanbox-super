@@ -153,8 +153,8 @@ fn opposing_lineages_in_an_unfinished_battle_cannot_negotiate() {
         initial_a: 1,
         initial_d: 1,
         routed_a: false,
-    routed_d: false,
-};
+        routed_d: false,
+    };
 
     assert!(has_active_battle_between(
         std::slice::from_ref(&battle),
@@ -344,8 +344,8 @@ fn battle_deaths_are_counted_in_their_year_and_written_into_the_life_story() {
         initial_a: 2,
         initial_d: 2,
         routed_a: false,
-    routed_d: false,
-}];
+        routed_d: false,
+    }];
     let lineage_eras = HashMap::default();
     let governments = HashMap::default();
     let mut treaties = Vec::new();
@@ -421,9 +421,12 @@ fn raids_over_a_while(sim: &Simulation) -> usize {
                 n * RAID_CHECK_INTERVAL,
                 &mut rng,
                 &sim.organisms,
-                &HashMap::default(),
-                &[],
-                &[],
+                &WarGround {
+                    grid: &sim.grid,
+                    territory: &HashMap::default(),
+                    treaties: &[],
+                    active_battles: &[],
+                },
                 &mut events,
                 &minds,
                 &mut reasons,
@@ -501,8 +504,8 @@ fn the_badly_wounded_leave_the_battle_alive_and_go_home() {
         initial_a: 2,
         initial_d: 2,
         routed_a: false,
-    routed_d: false,
-}];
+        routed_d: false,
+    }];
     let lineage_eras = HashMap::default();
     let governments = HashMap::default();
     let mut treaties = Vec::new();
@@ -573,8 +576,8 @@ fn a_fighter_who_is_not_at_the_battle_is_not_hurt_by_it() {
         initial_a: 2,
         initial_d: 2,
         routed_a: false,
-    routed_d: false,
-}];
+        routed_d: false,
+    }];
     let lineage_eras = HashMap::default();
     let governments = HashMap::default();
     let mut treaties = Vec::new();
@@ -710,5 +713,84 @@ fn a_losing_line_routs_fear_floods_and_the_news_breaks() {
             .iter()
             .any(|e| e.etype == "battle_route" && e.detail.contains("broke")),
         "the rout makes the news"
+    );
+}
+
+/// A horizontal run of dry walkable tiles, for drawing two touching
+/// countries.
+fn dry_run(sim: &Simulation, len: usize) -> (i32, i32, i32) {
+    for y in 0..crate::world::grid::HEIGHT as i32 {
+        let mut run = 0i32;
+        for x in 0..crate::world::grid::WIDTH as i32 {
+            run = if super::spawning::dry_ground(&sim.grid, x, y) {
+                run + 1
+            } else {
+                0
+            };
+            if run as usize == len {
+                return (x + 1 - len as i32, y, len as i32);
+            }
+        }
+    }
+    panic!("no dry run of {len} tiles in this world");
+}
+
+#[test]
+fn a_border_war_is_fought_on_the_shared_border_itself() {
+    let sim = Simulation::new(85);
+    let (x0, y0, len) = dry_run(&sim, 16);
+    let mid = x0 + len / 2;
+    // Two touching countries: the west half and the east half of the run.
+    let a: HashSet<(i32, i32)> = (x0..mid).map(|x| (x, y0)).collect();
+    let b: HashSet<(i32, i32)> = (mid..x0 + len).map(|x| (x, y0)).collect();
+    let loc = super::spawning::shared_front_point(&sim.grid, &a, &b).expect("a shared front exists");
+    assert!(
+        super::spawning::dry_ground(&sim.grid, loc.0, loc.1),
+        "the battle stands on dry ground"
+    );
+    let nearest = |s: &HashSet<(i32, i32)>| {
+        s.iter()
+            .map(|&(x, y)| (x - loc.0).abs().max((y - loc.1).abs()))
+            .min()
+            .unwrap()
+    };
+    assert!(nearest(&a) <= 1, "the battle stands on the attacker's border");
+    assert_eq!(nearest(&b), 1, "the battle faces the defender's land");
+    // Disjoint countries share no front: no border war without a border.
+    let far: HashSet<(i32, i32)> = (mid + 40..mid + 44).map(|x| (x, y0)).collect();
+    assert_eq!(
+        super::spawning::shared_front_point(&sim.grid, &a, &far),
+        None,
+        "no shared border, no border war"
+    );
+}
+
+#[test]
+fn a_raid_lands_on_the_defenders_frontier_not_the_midpoint() {
+    let sim = Simulation::new(85);
+    let (x0, y0, len) = dry_run(&sim, 16);
+    let mid = x0 + len / 2;
+    // The defender holds the east half; the raiders come from the west.
+    let d: HashSet<(i32, i32)> = (mid..x0 + len).map(|x| (x, y0)).collect();
+    let loc = super::spawning::invasion_point(&sim.grid, &d, (x0 - 30, y0))
+        .expect("the defender holds walkable land");
+    assert!(d.contains(&loc), "the raid lands inside the defender's country");
+    assert!(super::spawning::dry_ground(&sim.grid, loc.0, loc.1));
+    assert_eq!(loc, (mid, y0), "it strikes the defender's border tile");
+    // No walkable ground to strike: no landing point at all.
+    let mut water = None;
+    'find_water: for y in 0..crate::world::grid::HEIGHT as i32 {
+        for x in 0..crate::world::grid::WIDTH as i32 {
+            if sim.grid.get(x, y) == crate::world::tiles::Tile::Water {
+                water = Some((x, y));
+                break 'find_water;
+            }
+        }
+    }
+    let water: HashSet<(i32, i32)> = water.map(|p| HashSet::from_iter([p])).unwrap_or_default();
+    assert_eq!(
+        super::spawning::invasion_point(&sim.grid, &water, (0, 0)),
+        None,
+        "a country of only water cannot be invaded on foot"
     );
 }

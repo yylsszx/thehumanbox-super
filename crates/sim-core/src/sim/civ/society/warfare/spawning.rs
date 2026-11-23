@@ -1,5 +1,76 @@
 use super::*;
 
+/// Ground a battle stands on: walkable and dry — a war band neither fights
+/// in open water nor on sheer rock (swimming is travel, not a front line).
+pub(super) fn dry_ground(grid: &crate::world::grid::WorldGrid, x: i32, y: i32) -> bool {
+    !matches!(
+        grid.get(x, y),
+        crate::world::tiles::Tile::Water
+            | crate::world::tiles::Tile::Void
+            | crate::world::tiles::Tile::Rock
+            | crate::world::tiles::Tile::Lava
+    )
+}
+
+/// The ground a border war is fought on: the shared border itself.
+///
+/// Returns the centroid of the attacker-side tiles that touch the defender's
+/// territory, snapped to the nearest such tile that stands on walkable land
+/// (a border traced along a river's banks must not drop the battle in the
+/// water). None when the two territories do not actually touch — a border war
+/// without a border is not a border war.
+pub(super) fn shared_front_point(
+    grid: &crate::world::grid::WorldGrid,
+    a_terr: &HashSet<(i32, i32)>,
+    b_terr: &HashSet<(i32, i32)>,
+) -> Option<(i32, i32)> {
+    let mut front: Vec<(i32, i32)> = Vec::new();
+    for &(x, y) in a_terr.iter() {
+        for (dx, dy) in [(-1i32, 0), (1, 0), (0, -1), (0, 1), (0, 0)] {
+            if b_terr.contains(&(x + dx, y + dy)) {
+                front.push((x, y));
+                break;
+            }
+        }
+    }
+    if front.is_empty() {
+        return None;
+    }
+    let (sx, sy): (i64, i64) = front
+        .iter()
+        .fold((0, 0), |(ax, ay), &(x, y)| (ax + x as i64, ay + y as i64));
+    let (cx, cy) = ((sx / front.len() as i64) as i32, (sy / front.len() as i64) as i32);
+    if crate::world::grid::WorldGrid::in_bounds(cx, cy) && dry_ground(grid, cx, cy) {
+        return Some((cx, cy));
+    }
+    // The centroid missed the dry land (a river border, say): stand on the
+    // contact tile nearest the centroid that is dry. Ties break by
+    // coordinates so the choice is deterministic.
+    front.sort_unstable_by_key(|&(x, y)| ((x - cx).abs() + (y - cy).abs(), x, y));
+    front.iter().copied().find(|&(x, y)| dry_ground(grid, x, y))
+}
+
+/// Where a raid strikes: the defender's border tile nearest the raider's
+/// people — an invasion crosses the frontier and lands inside the defender's
+/// claimed ground, not at the empty midpoint between two tribes. None if the
+/// defender holds no walkable land.
+pub(super) fn invasion_point(
+    grid: &crate::world::grid::WorldGrid,
+    d_terr: &HashSet<(i32, i32)>,
+    from: (i32, i32),
+) -> Option<(i32, i32)> {
+    let mut ranked: Vec<(i32, i32, i32)> = d_terr
+        .iter()
+        .copied()
+        .map(|(x, y)| ((x - from.0).abs() + (y - from.1).abs(), x, y))
+        .collect();
+    ranked.sort_unstable();
+    ranked
+        .into_iter()
+        .find(|&(_, x, y)| dry_ground(grid, x, y))
+        .map(|(_, x, y)| (x, y))
+}
+
 pub fn scale_for_participants(n: usize) -> BattleScale {
     if n >= BattleScale::War.min_participants() {
         BattleScale::War
@@ -18,6 +89,15 @@ pub const MAX_BATTLE_TICKS: u64 = 200;
 pub const STRENGTH_BREAK_FRAC: f32 = 0.30;
 pub const RAID_CHECK_INTERVAL: u64 = 240;
 pub const RAID_ATTITUDE_THRESHOLD: f32 = -0.45;
+
+/// The ground a war spawner reads: the map it fights over, the claims drawn
+/// on it, and the treaties and battles that already bind the tribes.
+pub struct WarGround<'a> {
+    pub grid: &'a crate::world::grid::WorldGrid,
+    pub territory: &'a HashMap<crate::intern::Sym, HashSet<(i32, i32)>>,
+    pub treaties: &'a [Treaty],
+    pub active_battles: &'a [Battle],
+}
 
 /// How a tribe as a whole feels about each other tribe: the mean of its living
 /// members' attitudes, with someone who has no opinion counting as neutral.
@@ -47,13 +127,15 @@ pub fn try_spawn_raids(
     tick: u64,
     rng: &mut rand_chacha::ChaCha8Rng,
     organisms: &[crate::organism::organism::Organism],
-    _territory: &HashMap<crate::intern::Sym, HashSet<(i32, i32)>>,
-    treaties: &[Treaty],
-    active_battles: &[Battle],
+    ground: &WarGround<'_>,
     events: &mut std::collections::VecDeque<crate::sim::simulation::Event>,
     minds: &WarMinds<'_>,
     reasons: &mut Vec<(String, CasusBelli)>,
 ) -> Vec<Battle> {
+    let grid = ground.grid;
+    let territory = ground.territory;
+    let treaties = ground.treaties;
+    let active_battles = ground.active_battles;
     use rand::RngExt;
     let mut out = Vec::new();
     if !tick.is_multiple_of(RAID_CHECK_INTERVAL) {
@@ -142,9 +224,17 @@ pub fn try_spawn_raids(
 
         let a_centroid = lineage_centroid(organisms, a_lid);
         let b_centroid = lineage_centroid(organisms, &b_lid);
-        let (ax, ay) = a_centroid;
-        let (bx, by) = b_centroid;
-        let loc = ((ax + bx) / 2, (ay + by) / 2);
+        // Strike at the defender's frontier: the raid lands on the defender's
+        // claimed ground facing the raider's people, so the fight (and the
+        // occupation front it presses) happens on real, disputed land.
+        let loc = territory
+            .get(b_lid.as_str())
+            .and_then(|d_terr| invasion_point(grid, d_terr, a_centroid))
+            .unwrap_or_else(|| {
+                let (ax, ay) = a_centroid;
+                let (bx, by) = b_centroid;
+                ((ax + bx) / 2, (ay + by) / 2)
+            });
 
         let n_per_side = 3 + (rng.random::<u32>() % 3) as usize;
         let attacker_orgs = pick_combatants(organisms, &pop_per_lineage, a_lid, n_per_side, loc, rng);
@@ -205,13 +295,15 @@ pub fn try_spawn_border_wars(
     tick: u64,
     rng: &mut rand_chacha::ChaCha8Rng,
     organisms: &[crate::organism::organism::Organism],
-    territory: &HashMap<crate::intern::Sym, HashSet<(i32, i32)>>,
-    treaties: &[Treaty],
-    active_battles: &[Battle],
+    ground: &WarGround<'_>,
     events: &mut std::collections::VecDeque<crate::sim::simulation::Event>,
     minds: &WarMinds<'_>,
     reasons: &mut Vec<(String, CasusBelli)>,
 ) -> Vec<Battle> {
+    let grid = ground.grid;
+    let territory = ground.territory;
+    let treaties = ground.treaties;
+    let active_battles = ground.active_battles;
     use rand::RngExt;
     let mut out = Vec::new();
     if tick == 0 || !tick.is_multiple_of(BORDER_WAR_CHECK_INTERVAL) {
@@ -304,9 +396,15 @@ pub fn try_spawn_border_wars(
             if rng.random::<f32>() > 0.55 {
                 continue;
             }
-            let (ax, ay) = lineage_centroid(organisms, a_lid);
-            let (bx, by) = lineage_centroid(organisms, b_lid);
-            let loc = ((ax + bx) / 2, (ay + by) / 2);
+            // The war is fought where the two countries actually meet: the
+            // battle stands on the shared border, so the front it presses
+            // bites into both sides' claimed ground and conquest visibly
+            // moves the line on the map.
+            let loc = shared_front_point(grid, a_terr, b_terr).unwrap_or_else(|| {
+                let (ax, ay) = lineage_centroid(organisms, a_lid);
+                let (bx, by) = lineage_centroid(organisms, b_lid);
+                ((ax + bx) / 2, (ay + by) / 2)
+            });
             let n_per_side = (8 + (rng.random::<u32>() % 6) as usize)
                 .min(a_pop / 2)
                 .min(b_pop / 2);

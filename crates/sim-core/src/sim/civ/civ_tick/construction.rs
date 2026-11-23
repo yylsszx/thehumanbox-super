@@ -330,12 +330,14 @@ struct SiteSearch<'a> {
     reserved: Vec<bool>,
     /// Positions of the lineage's workers who can work on a site.
     workers: Vec<(f32, f32)>,
+    /// The lineage whose site is being sought, for the sovereignty check.
+    lineage: &'a str,
 }
 
 impl<'a> SiteSearch<'a> {
     fn new(
         sim: &'a Simulation,
-        lineage: &str,
+        lineage: &'a str,
         kind: BuildingKind,
         preferred_x: i32,
         preferred_y: i32,
@@ -345,7 +347,7 @@ impl<'a> SiteSearch<'a> {
 
     fn around(
         sim: &'a Simulation,
-        lineage: &str,
+        lineage: &'a str,
         kind: BuildingKind,
         preferred_x: i32,
         preferred_y: i32,
@@ -398,6 +400,7 @@ impl<'a> SiteSearch<'a> {
             occupied,
             reserved,
             workers,
+            lineage,
         }
     }
 
@@ -453,9 +456,25 @@ impl<'a> SiteSearch<'a> {
             && !self.touches_reserved(x, y, self.width, self.height)
             && (clearance_exempt(self.kind)
                 || !self.touches_building(x - 1, y - 2, self.width + 2, self.height + 4))
+            && self.sovereignty_clear(x, y)
             && self.workers.iter().any(|&(worker_x, worker_y)| {
                 (worker_x - x as f32).abs() + (worker_y - y as f32).abs() <= CONSTRUCTION_WORKER_REACH
             })
+    }
+
+    /// Houses live inside the civ's own borders: the footprint must stand on
+    /// unclaimed ground or the builder lineage's sovereign land, never inside
+    /// a neighbour's claimed country. Buildings and the territory layer
+    /// therefore agree on who holds the ground.
+    fn sovereignty_clear(&self, x: i32, y: i32) -> bool {
+        (y..y + i32::from(self.height)).all(|ty| {
+            (x..x + i32::from(self.width)).all(|tx| {
+                self.sim
+                    .tile_owner
+                    .get(&(tx, ty))
+                    .is_none_or(|owner| owner.as_str() == self.lineage)
+            })
+        })
     }
 }
 
@@ -1864,6 +1883,19 @@ pub(super) fn tick_building_progress(sim: &mut Simulation) {
             }
         }
         apply_completed_building_effect(sim, kind, x, y);
+        // The flag goes up with the building: unclaimed ground under the
+        // footprint joins the builder's territory and the organic border
+        // grows outward from the new structure, so the territory layer tracks
+        // where settlements actually are instead of only the founding camp.
+        {
+            let lid: crate::intern::Sym = lineage.as_str().into();
+            let (w, h) = kind.footprint();
+            for ty in y..y + i32::from(h) {
+                for tx in x..x + i32::from(w) {
+                    sim.seed_territory_at(&lid, tx, ty);
+                }
+            }
+        }
         push_event(
             &mut sim.events,
             sim.tick_count,

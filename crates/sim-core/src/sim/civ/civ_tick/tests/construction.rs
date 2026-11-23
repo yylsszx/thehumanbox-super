@@ -680,6 +680,15 @@ fn reference_site(
             && automatic_site_has_clearance(sim, kind, x, y)
             && !(y..y + i32::from(height))
                 .any(|cy| (x..x + i32::from(width)).any(|cx| super::super::town::town_reserved(sim, cx, cy)))
+            && (y..y + i32::from(height)).all(|cy| {
+                (x..x + i32::from(width)).all(|cx| {
+                    // The sovereignty rule the site search applies: a footprint
+                    // never stands inside another lineage's claimed country.
+                    sim.tile_owner
+                        .get(&(cx, cy))
+                        .is_none_or(|owner| owner.as_str() == lineage)
+                })
+            })
             && construction_site_has_reachable_worker(sim, lineage, x, y)
     };
     if ok(preferred_x, preferred_y) {
@@ -1268,4 +1277,50 @@ fn no_building_goes_up_on_a_road_or_a_rail_line() {
             assert_eq!(sim.grid.road_at(tx, ty), ROAD_NONE, "{tx},{ty} is a way");
         }
     }
+}
+
+#[test]
+fn a_house_is_not_sited_inside_a_neighbours_claimed_country() {
+    use crate::world::tiles::Tile;
+
+    let mut sim = Simulation::new(0x7A_11);
+    sim.organisms.clear();
+    sim.buildings.clear();
+    sim.towns.clear();
+    for y in 40..=60 {
+        for x in 40..=60 {
+            sim.grid.set(x, y, Tile::Grass);
+        }
+    }
+    let mut builder = test_org("builder", "Builder", "lineage-a", 50.0, 50.0);
+    builder.age = 10_000;
+    sim.organisms.push(builder);
+
+    // Unclaimed ground: the site is found.
+    assert!(
+        find_construction_site(&sim, "lineage-a", BuildingKind::House, 50, 50).is_some(),
+        "unclaimed ground takes the house"
+    );
+    // The builder's own sovereign ground: the site is found.
+    for y in 40..=60 {
+        for x in 40..=60 {
+            sim.tile_owner.insert((x, y), "lineage-a".into());
+        }
+    }
+    assert!(
+        find_construction_site(&sim, "lineage-a", BuildingKind::House, 50, 50).is_some(),
+        "the builder's own country takes the house"
+    );
+    // A neighbour's sovereign claim over the whole clearing: no site at all,
+    // the search ring never leaves their claimed country.
+    for y in 40..=60 {
+        for x in 40..=60 {
+            sim.tile_owner.insert((x, y), "lineage-b".into());
+        }
+    }
+    assert_eq!(
+        find_construction_site(&sim, "lineage-a", BuildingKind::House, 50, 50),
+        None,
+        "a neighbour's claimed country takes no house"
+    );
 }

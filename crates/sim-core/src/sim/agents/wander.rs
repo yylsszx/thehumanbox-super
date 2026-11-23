@@ -59,7 +59,12 @@ impl Simulation {
             return;
         }
         if let Some((tx, ty)) = self.organisms[idx].wander_target {
-            if !self.is_good_land_target(tx, ty) {
+            // Sovereignty invalidates a target: the ground was annexed or
+            // claimed by another lineage since the journey began, so it is no
+            // longer this traveller's to head for.
+            if !self.is_good_land_target(tx, ty)
+                || !self.land_is_open_to(&self.organisms[idx].lineage_id, tx, ty)
+            {
                 self.organisms[idx].wander_target = None;
             }
         }
@@ -161,7 +166,10 @@ impl Simulation {
             let ty = (my + dy * push).round() as i32;
             let tx = tx.clamp(5, WIDTH as i32 - 5);
             let ty = ty.clamp(5, HEIGHT as i32 - 5);
-            if self.is_good_land_target(tx, ty) {
+            // "Open" land is unclaimed or the tribe's own: a band seeking
+            // room to grow heads for ground nobody's flag flies over, not
+            // deep into a neighbour's claimed country.
+            if self.is_good_land_target(tx, ty) && self.land_is_open_to(&lid, tx, ty) {
                 self.organisms[idx].begin_journey((tx, ty), "seeking open land", self.tick_count);
                 return;
             }
@@ -194,8 +202,12 @@ impl Simulation {
         // arrived before the journey expired, so explorers looped.
         let min_dist = 30 + (curiosity * 40.0) as i32;
         let max_dist = 90 + (curiosity * 110.0) as i32;
+        // Explorers respect the border too: a distant target inside another
+        // lineage's claimed country is not theirs to wander into.
         if let Some(target) = self.find_distant_land_target(x, y, min_dist, max_dist) {
-            self.organisms[idx].begin_journey(target, "exploring distant land", self.tick_count);
+            if self.land_is_open_to(&lid, target.0, target.1) {
+                self.organisms[idx].begin_journey(target, "exploring distant land", self.tick_count);
+            }
         }
     }
 

@@ -19,6 +19,38 @@ const UNDISCOVERED_CAP: usize = 28;
 const DISSOLVE_PER_PASS: usize = 8;
 
 impl Simulation {
+    /// Whether the tile at (x, y) is land `lid` may set foot on as a
+    /// destination: unclaimed ground, or its own sovereign ground. Another
+    /// lineage's claimed tile is theirs to roam — wander and work targets
+    /// respect the border instead of drifting through a neighbour's country.
+    pub(crate) fn land_is_open_to(&self, lid: &crate::intern::Sym, x: i32, y: i32) -> bool {
+        self.tile_owner.get(&(x, y)).is_none_or(|owner| *owner == *lid)
+    }
+
+    /// A completed building plants its lineage's flag: unclaimed ground the
+    /// structure stands on joins that lineage's territory, and the frontier
+    /// grows outward from it. Territory display therefore follows the real
+    /// settlements instead of only wherever the founding camp happened to be.
+    pub(crate) fn seed_territory_at(&mut self, lid: &crate::intern::Sym, x: i32, y: i32) {
+        if !crate::world::grid::WorldGrid::in_bounds(x, y) {
+            return;
+        }
+        if matches!(self.grid.get(x, y), Tile::Water | Tile::Void) {
+            return;
+        }
+        if self.tile_owner.contains_key(&(x, y)) {
+            // Already someone's sovereign ground — conquest's job, not a
+            // builder's.
+            return;
+        }
+        let set = self.territory.entry(*lid).or_default();
+        if set.insert((x, y)) {
+            self.tile_owner.insert((x, y), *lid);
+            self.push_frontier_candidates(lid, (x, y));
+            self.territory_revision = self.territory_revision.wrapping_add(1);
+        }
+    }
+
     pub(super) fn tick_settlements(&mut self) {
         crate::sim::civ::settlements::tick(self);
     }
@@ -430,5 +462,62 @@ impl Simulation {
                 self.headlines.pop_front();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod sovereignty_tests {
+    use super::*;
+
+    fn first_walkable(sim: &Simulation) -> (i32, i32) {
+        for y in 0..crate::world::grid::HEIGHT as i32 {
+            for x in 0..crate::world::grid::WIDTH as i32 {
+                if !matches!(sim.grid.get(x, y), Tile::Water | Tile::Void) {
+                    return (x, y);
+                }
+            }
+        }
+        panic!("no walkable tile on the map");
+    }
+
+    /// A completed building plants the flag: unclaimed ground under it joins
+    /// the builder's territory, seeds the frontier, and bumps the revision so
+    /// the wire view redraws. Foreign sovereign ground is left alone.
+    #[test]
+    fn a_building_plants_the_flag_where_it_stands() {
+        let mut sim = Simulation::new(87);
+        let (x, y) = first_walkable(&sim);
+        let lid: crate::intern::Sym = "builder".into();
+        let before = sim.territory_revision;
+        sim.seed_territory_at(&lid, x, y);
+        assert!(
+            sim.territory.get(&lid).is_some_and(|s| s.contains(&(x, y))),
+            "the tile under the building is now the builder's"
+        );
+        assert_eq!(sim.tile_owner.get(&(x, y)).map(|o| o.as_str()), Some("builder"));
+        assert!(
+            sim.territory_frontiers.get(&lid).is_some_and(|q| !q.is_empty()),
+            "the frontier grows outward from the new structure"
+        );
+        assert!(sim.territory_revision != before, "the view redraws");
+        // Already someone's ground — including the builder's own: no change.
+        let owner_before = sim.tile_owner.get(&(x, y)).copied();
+        sim.seed_territory_at(&lid, x, y);
+        sim.seed_territory_at(&"other".into(), x, y);
+        assert_eq!(sim.tile_owner.get(&(x, y)).copied(), owner_before);
+    }
+
+    /// Wander and work destinations respect the flag: unclaimed or own ground
+    /// is open, a neighbour's claimed country is not.
+    #[test]
+    fn land_is_open_to_respects_the_flag() {
+        let mut sim = Simulation::new(87);
+        let (x, y) = first_walkable(&sim);
+        let mine: crate::intern::Sym = "mine".into();
+        let other: crate::intern::Sym = "other".into();
+        assert!(sim.land_is_open_to(&mine, x, y), "unclaimed ground is open");
+        sim.tile_owner.insert((x, y), mine);
+        assert!(sim.land_is_open_to(&mine, x, y), "own ground is open");
+        assert!(!sim.land_is_open_to(&other, x, y), "a neighbour's is not");
     }
 }

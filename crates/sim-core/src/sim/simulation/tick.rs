@@ -269,9 +269,12 @@ impl Simulation {
                 self.tick_count,
                 &mut self.rng,
                 &self.organisms,
-                &self.territory,
-                &self.treaties,
-                &self.battles,
+                &crate::sim::warfare::WarGround {
+                    grid: &self.grid,
+                    territory: &self.territory,
+                    treaties: &self.treaties,
+                    active_battles: &self.battles,
+                },
                 &mut self.events,
                 &crate::sim::warfare::WarMinds {
                     relations: &self.diplomacy.relations,
@@ -293,9 +296,12 @@ impl Simulation {
                 self.tick_count,
                 &mut self.rng,
                 &self.organisms,
-                &self.territory,
-                &self.treaties,
-                &self.battles,
+                &crate::sim::warfare::WarGround {
+                    grid: &self.grid,
+                    territory: &self.territory,
+                    treaties: &self.treaties,
+                    active_battles: &self.battles,
+                },
                 &mut self.events,
                 &crate::sim::warfare::WarMinds {
                     relations: &self.diplomacy.relations,
