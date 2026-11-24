@@ -728,6 +728,12 @@ impl Simulation {
         // real strength goes to the occupier, the rest reverts to its owner.
         let settled = self.settle_fronts(&a, &d);
         tiles += settled;
+        // Knowledge, like loot, crosses the front: the victor's
+        // quartermasters recover what the defeated knew (half-strength
+        // copies; the aggregate caps keep the arms race bounded).
+        if winner.is_some() {
+            self.diffuse_techs(&w, &l);
+        }
         let treaty_ends = now + 5_000 + self.rng.random::<u64>() % 3_000;
         if outcome == WarOutcome::Tribute {
             establish_treaty(

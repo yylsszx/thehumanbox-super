@@ -35,6 +35,14 @@ const HELD_WITHIN: i32 = 7;
 const CONTESTED_WITHIN: i32 = 3;
 /// Cap on tracked occupied tiles; the weakest go when the front sprawls.
 const MAX_OCCUPIED: usize = 4096;
+/// How far from the overrun ground a victor scrounges its armouries.
+const SCAVENGE_REACH: i32 = 25;
+/// Chance per nearby adult to scavenge one piece of captured gear.
+const SCAVENGE_CHANCE: f32 = 0.12;
+/// At most this many fittings per annexation: a strip, not a redistribution.
+const SCAVENGE_CAP: usize = 6;
+/// An annexation smaller than this is a skirmish's worth of ground.
+const SCAVENGE_MIN_TILES: usize = 3;
 /// One battle's front press: (centre, radius, presser power, pressed power,
 /// presser, pressed). Each side presses with its own armament.
 type FrontPress = ((i32, i32), i32, f32, f32, String, String);
@@ -268,6 +276,62 @@ impl Simulation {
         }
     }
 
+    /// Occupation spoils (pwb's overrun armouries): annexing another
+    /// lineage's ground strips its stores. The victor's adults near the
+    /// overrun ground scavenge gear rolled at the *loser's* armament tier
+    /// — captured arms, not the winner's own patterns, so a conquest can
+    /// outclass the home forge. Bounded: a small chance per nearby adult,
+    /// at most a handful of fittings per annexation.
+    fn occupation_spoils(&mut self, from: &str, to: &str, tiles: &[(i32, i32)]) {
+        use rand::RngExt;
+        if tiles.len() < SCAVENGE_MIN_TILES {
+            // A skirmish's worth of ground: nothing worth stripping.
+            return;
+        }
+        let loser_tier = self
+            .lineage_eras
+            .get(from)
+            .copied()
+            .map(|e| crate::organism::items::era_tier(e as u8))
+            .unwrap_or(0);
+        if loser_tier == 0 {
+            // A pre-metal loser has no armouries to overrun.
+            return;
+        }
+        let cx = tiles.iter().map(|t| t.0).sum::<i32>() / tiles.len() as i32;
+        let cy = tiles.iter().map(|t| t.1).sum::<i32>() / tiles.len() as i32;
+        let mut fitted: Vec<(usize, &'static crate::organism::items::ItemDef)> = Vec::new();
+        for (i, o) in self.organisms.iter().enumerate() {
+            if !o.alive
+                || o.lineage_id.as_str() != to
+                || (o.x as i32 - cx).abs().max((o.y as i32 - cy).abs()) > SCAVENGE_REACH
+                || !crate::sim::age_stage::AgeStage::from_age(o.age, o.max_age).can_combat()
+            {
+                continue;
+            }
+            if self.rng.random::<f32>() < SCAVENGE_CHANCE {
+                if let Some(def) = crate::organism::items::roll_item(&mut self.rng, loser_tier) {
+                    fitted.push((i, def));
+                    if fitted.len() >= SCAVENGE_CAP {
+                        break;
+                    }
+                }
+            }
+        }
+        for (i, def) in fitted {
+            if crate::organism::items::equip(&mut self.organisms[i].gear, def).is_some() {
+                let name = self.organisms[i].name.clone();
+                crate::sim::world_events::push_event(
+                    &mut self.events,
+                    self.tick_count,
+                    "loot",
+                    &name,
+                    &format!("scavenged {} from the overrun armouries", def.name),
+                );
+            }
+        }
+    }
+
     /// A war settlement's front resolution: ground held with real strength
     /// (≥ 70) is annexed by the side standing on it; the rest reverts to its
     /// owner, exactly as pwb's `settleFront` did at the peace table. Returns
@@ -330,6 +394,9 @@ impl Simulation {
             } else {
                 self.move_tiles(&from, to, &group);
                 territory_dirty = true;
+                // The overrun armouries are stripped before the maps are
+                // redrawn: captured gear joins the victor's kit.
+                self.occupation_spoils(&from, to, &group);
             }
         }
         let _ = already_mine;
@@ -369,13 +436,34 @@ mod tests {
 
     /// A sim with one lineage holding a disc of land, for pressing fronts.
     fn sim_with_land() -> (Simulation, String, (i32, i32)) {
-        let mut sim = Simulation::new(87);
+        sim_with_land_seed(87)
+    }
+
+    fn sim_with_land_seed(seed: u64) -> (Simulation, String, (i32, i32)) {
+        let mut sim = Simulation::new(seed);
         let mut centre = (0, 0);
-        'find: for y in 0..crate::world::grid::HEIGHT as i32 {
-            for x in 0..crate::world::grid::WIDTH as i32 {
-                if !matches!(sim.grid.get(x, y), Tile::Water | Tile::Void) {
+        'find: for y in 3..crate::world::grid::HEIGHT as i32 - 3 {
+            for x in 3..crate::world::grid::WIDTH as i32 - 3 {
+                // Prefer solid ground: a centre whose 7×7 neighbourhood is
+                // all land (the first land tile in a scan is a coastline,
+                // and an annexation pressed there may not have three land
+                // tiles to its name).
+                let land = (0..7).flat_map(|dy| (0..7).map(move |dx| (dy, dx))).filter(|&(dy, dx)| {
+                    !matches!(sim.grid.get(x + dx - 3, y + dy - 3), Tile::Water | Tile::Void)
+                }).count();
+                if land == 49 {
                     centre = (x, y);
                     break 'find;
+                }
+            }
+        }
+        if centre == (0, 0) {
+            'fallback: for y in 0..crate::world::grid::HEIGHT as i32 {
+                for x in 0..crate::world::grid::WIDTH as i32 {
+                    if !matches!(sim.grid.get(x, y), Tile::Water | Tile::Void) {
+                        centre = (x, y);
+                        break 'fallback;
+                    }
                 }
             }
         }
@@ -454,5 +542,42 @@ mod tests {
             saturation > precision,
             "saturation {saturation} should grind faster than the doctrine-less {precision}"
         );
+    }
+
+    #[test]
+    fn annexing_ground_scavenges_the_loser_s_armouries() {
+        // Statistical, in the suite's house style: over forty worlds, some
+        // victor near the overrun ground walks away in captured gear.
+        let mut any = false;
+        for seed in 1..=40u64 {
+            let (mut sim, lid, (cx, cy)) = sim_with_land_seed(seed);
+            // An iron-age loser has armouries worth stripping; the victor
+            // stands on the overrun ground, adult and empty-handed.
+            sim.lineage_eras.insert(lid.clone().into(), crate::sim::era::Era::Iron);
+            sim.organisms.truncate(16);
+            for o in sim.organisms.iter_mut() {
+                o.alive = true;
+                o.lineage_id = "invader".into();
+                o.age = 30;
+                o.max_age = 90;
+                o.x = cx as f32;
+                o.y = cy as f32;
+                o.gear.clear();
+            }
+            // An overwhelming press annexes the core outright (≥ 3 tiles,
+            // so the armouries are worth the trip).
+            sim.front_push((cx, cy), 3, 200.0, "invader", &lid);
+            let annexed = sim.territory.get("invader").map_or(0, |s| s.len());
+            if annexed < 3 {
+                continue;
+            }
+            let looted = sim
+                .events
+                .iter()
+                .any(|e| e.etype == "loot" && e.detail.contains("overrun armouries"));
+            let geared = sim.organisms.iter().any(|o| !o.gear.is_empty());
+            any |= looted && geared;
+        }
+        assert!(any, "some seed's victors scavenged captured gear");
     }
 }

@@ -266,6 +266,18 @@ fn saturate(gen: u32) -> f32 {
     1.0 + (gen as f32 * 0.04).min(0.8)
 }
 
+/// Territory at which the invention bonus saturates (the engine's hard
+/// per-lineage ceiling is 1600 tiles; the bonus tops out at half that).
+const TERRITORY_FULL_SCALE: usize = 800;
+
+/// A lineage invents at the pace of its productive territory — the
+/// materialist base feeding the superstructure. A village patch keeps the
+/// old baseline; a wide realm (800+ tiles) invents at roughly twice that
+/// pace: more hands on the land, more surplus to feed scholars.
+fn invention_chance(tiles: usize) -> f32 {
+    0.25 + (tiles.min(TERRITORY_FULL_SCALE) as f32 / TERRITORY_FULL_SCALE as f32) * 0.35
+}
+
 impl Simulation {
     /// The emergent-civ tick: inventions on a slow cadence, ideas on a
     /// slower one. Everything folds into the aggregate accessors below.
@@ -299,7 +311,10 @@ impl Simulation {
             if gen > 24 {
                 continue;
             }
-            if self.emergent_rng.random::<f32>() >= 0.35 {
+            // The materialist base: a lineage invents at the pace of its
+            // productive territory (see `invention_chance`).
+            let tiles = self.territory.get(lid.as_str()).map_or(0, |s| s.len());
+            if self.emergent_rng.random::<f32>() >= invention_chance(tiles) {
                 continue;
             }
             let t = Self::invent_tech(&lid, gen, &mut self.emergent_rng);
@@ -332,7 +347,9 @@ impl Simulation {
             .collect::<Vec<_>>()
             .into_iter()
             .filter(|lid| {
-                // Cultural pressure: a seat of learning or a wealthy purse.
+                // Cultural pressure: a seat of learning, a wealthy purse, or
+                // the institutional reach of a wide realm (300+ tiles: a
+                // state big enough to carry an idea across its country).
                 self.emergent_ideas.iter().filter(|i| &i.lineage == lid).count() < 3
                     && (self.buildings.iter().any(|b| {
                         b.is_operational()
@@ -346,11 +363,16 @@ impl Simulation {
                     }) || self
                         .governments
                         .get(lid.as_str())
-                        .is_some_and(|g| g.treasury >= 60))
+                        .is_some_and(|g| g.treasury >= 60)
+                        || self.territory.get(lid.as_str()).map_or(0, |s| s.len()) >= 300)
             })
             .collect();
         for lid in candidates {
-            if self.emergent_rng.random::<f32>() >= 0.25 {
+            // Ideas ride institutional reach: a bigger country carries them
+            // further (0.18 on a patch, 0.40 across a realm).
+            let tiles = self.territory.get(lid.as_str()).map_or(0, |s| s.len());
+            let chance = 0.18 + (tiles.min(600) as f32 / 600.0) * 0.22;
+            if self.emergent_rng.random::<f32>() >= chance {
                 continue;
             }
             let idea = Self::invent_idea(&lid, &mut self.emergent_rng);
@@ -478,6 +500,81 @@ impl Simulation {
             combat,
             wear,
             desc: format!("{} — {}", body.desc, bits.join(", ")),
+        }
+    }
+
+    /// War diffusion (pwb's spoils of the mind): the victor's quartermasters
+    /// study what they captured, and one piece of the defeated's learning
+    /// crosses the front — as a half-strength copy studied under fire, never
+    /// the real thing. A trophy is not copied twice, and the aggregate caps
+    /// (`emergent_research_mul` and its siblings) keep the arms race bounded.
+    pub(crate) fn diffuse_techs(&mut self, winner: &str, loser: &str) {
+        let count = self
+            .emergent_techs
+            .iter()
+            .filter(|t| t.lineage == loser)
+            .count();
+        if count == 0 {
+            return;
+        }
+        // Not every war spreads knowledge.
+        if self.emergent_rng.random::<f32>() >= 0.5 {
+            return;
+        }
+        let idx = self.emergent_rng.random_range(0..count);
+        let Some(pick) = self
+            .emergent_techs
+            .iter()
+            .filter(|t| t.lineage == loser)
+            .nth(idx)
+            .cloned()
+        else {
+            return;
+        };
+        // A trophy is not copied twice.
+        if self
+            .emergent_techs
+            .iter()
+            .any(|t| t.lineage == winner && t.name == pick.name)
+        {
+            return;
+        }
+        let gen = self
+            .emergent_techs
+            .iter()
+            .filter(|t| t.lineage == winner)
+            .count() as u32
+            + 1;
+        if gen > 24 {
+            // No spare slots for captured knowledge.
+            return;
+        }
+        let t = EmergentTech {
+            lineage: winner.to_string(),
+            name: pick.name.clone(),
+            gen,
+            research: pick.research * 0.5,
+            combat: pick.combat * 0.5,
+            wear: pick.wear * 0.5,
+            desc: format!("{} — recovered from the defeated", pick.desc),
+        };
+        let line = format!(
+            "\u{1F9ED} The {} recover {} from the {} — knowledge crosses the front.",
+            self.tribe_name(winner),
+            t.name,
+            self.tribe_name(loser)
+        );
+        self.emergent_techs.push(t);
+        crate::sim::world_events::push_event(
+            &mut self.events,
+            self.tick_count,
+            "milestone",
+            "world",
+            &line,
+        );
+        self.headlines.push_back((self.tick_count, line));
+        while self.headlines.len() > 80 {
+            self.headlines.pop_front();
         }
     }
 
@@ -626,5 +723,120 @@ mod tests {
         }
         assert!(any_tech, "some seed invented a tech");
         assert!(any_idea, "some seed adopted an idea");
+    }
+
+    #[test]
+    fn wide_territory_invents_faster_than_a_village_patch() {
+        // The materialist base: one invention pass per world, forty worlds
+        // each, wide realm (800 tiles) against a village patch (none).
+        let mut small = 0usize;
+        let mut wide = 0usize;
+        for seed in 1..=40u64 {
+            for &(tiles, is_wide) in &[(0usize, false), (800usize, true)] {
+                let mut sim = Simulation::new(seed);
+                sim.lineage_eras.insert("l".into(), Era::Bronze);
+                sim.organisms.truncate(8);
+                for o in sim.organisms.iter_mut() {
+                    o.alive = true;
+                    o.lineage_id = "l".into();
+                }
+                if tiles > 0 {
+                    let set: crate::hashing::FxHashSet<(i32, i32)> =
+                        (0..tiles).map(|i| (i as i32, 0)).collect();
+                    sim.territory.insert("l".into(), set);
+                }
+                sim.tick_count = 480;
+                sim.tick_emergent_civ();
+                let invented = sim.emergent_techs.iter().filter(|t| t.lineage == "l").count();
+                if is_wide {
+                    wide += invented;
+                } else {
+                    small += invented;
+                }
+            }
+        }
+        assert!(
+            wide > small,
+            "the wide realm ({wide} inventions) should out-invent the patch ({small})"
+        );
+    }
+
+    #[test]
+    fn defeated_knowledge_diffuses_to_the_victor_at_half_strength() {
+        let mut any = false;
+        for seed in 1..=40u64 {
+            let mut sim = Simulation::new(seed);
+            // The loser enters the war with three inventions.
+            for k in 1..=3u32 {
+                let t = Simulation::invent_tech("loser", k, &mut sim.emergent_rng);
+                sim.emergent_techs.push(t);
+            }
+            sim.diffuse_techs("winner", "loser");
+            let got: Vec<_> = sim
+                .emergent_techs
+                .iter()
+                .filter(|t| t.lineage == "winner")
+                .cloned()
+                .collect();
+            for t in &got {
+                any = true;
+                let src = sim
+                    .emergent_techs
+                    .iter()
+                    .find(|s| s.lineage == "loser" && s.name == t.name)
+                    .unwrap();
+                assert!(
+                    (t.research - src.research * 0.5).abs() < 1e-6
+                        && (t.combat - src.combat * 0.5).abs() < 1e-6
+                        && (t.wear - src.wear * 0.5).abs() < 1e-6,
+                    "a recovery is a half-strength copy of {src:?}, not {t:?}"
+                );
+                assert_eq!(t.desc, format!("{} — recovered from the defeated", src.desc));
+            }
+            // A winner with nothing stays at the neutral multiplier, and
+            // every lineage's aggregates stay capped.
+            assert!(sim.emergent_research_mul("winner") <= 2.0);
+            assert!(sim.emergent_combat_mul("winner") <= 1.6);
+        }
+        assert!(any, "some seed diffused the loser's knowledge");
+    }
+
+    #[test]
+    fn a_trophy_is_not_copied_twice() {
+        let mut sim = Simulation::new(5);
+        let t = Simulation::invent_tech("loser", 1, &mut sim.emergent_rng);
+        let name = t.name.clone();
+        sim.emergent_techs.push(t);
+        // Fire the diffusion until it lands (chance is even).
+        let mut landed = false;
+        for _ in 0..80 {
+            sim.diffuse_techs("winner", "loser");
+            if sim
+                .emergent_techs
+                .iter()
+                .any(|t| t.lineage == "winner" && t.name == name)
+            {
+                landed = true;
+                break;
+            }
+        }
+        assert!(landed, "the diffusion fired within eighty tries");
+        // Fire many more: the same trophy must never be copied again.
+        for _ in 0..80 {
+            sim.diffuse_techs("winner", "loser");
+        }
+        let copies = sim
+            .emergent_techs
+            .iter()
+            .filter(|t| t.lineage == "winner")
+            .count();
+        assert_eq!(copies, 1, "the trophy is copied at most once");
+    }
+
+    #[test]
+    fn a_loser_with_no_knowledge_diffuses_nothing() {
+        let mut sim = Simulation::new(6);
+        sim.diffuse_techs("winner", "loser");
+        assert!(sim.emergent_techs.iter().all(|t| t.lineage != "winner"));
     }
 }
