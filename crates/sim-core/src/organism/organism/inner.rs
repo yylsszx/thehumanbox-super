@@ -486,3 +486,12 @@ fn need_of(text: &str) -> Option<Need> {
         _ => None,
     }
 }
+
+/// Whether `text` names a survival need, so an urgent need keeps it on show.
+/// Test-visible for the hierarchy's wire-stability tests: the squad intent
+/// bubbles must stay non-need thoughts, or dispatching would fight the very
+/// suppression `think` runs.
+#[cfg(test)]
+pub(crate) fn is_need_thought(text: &str) -> bool {
+    need_of(text).is_some()
+}

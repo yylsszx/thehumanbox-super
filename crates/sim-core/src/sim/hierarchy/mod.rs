@@ -33,6 +33,7 @@ pub mod vector;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use squad::{ledger_slot_of_action, LEDGER_SLOTS, OBEY_MIN};
 pub use squad::{SquadBrain, SquadIntent, SquadStats};
 pub use tribe::{TribeAction, TribeBrain, TribePolicy, TribeStats};
 pub use vector::{LinearQ, MacroIntent, StateVector};
@@ -73,6 +74,72 @@ pub(crate) fn hierarchy_roll(tick: u64, salt: u64, key: &str) -> f32 {
 }
 
 impl crate::organism::organism::Organism {
+    /// The middle layer's epoch verdict, propagated down into this member.
+    ///
+    /// When the band's epoch went well, a member who actually obeyed (per the
+    /// ledger: enough ticks spent on the dispatched intent) is paid back twice:
+    /// in morale, and — new this round — *in its own tabular Q*: the recent
+    /// trace entries that served the intent are pulled a little toward the
+    /// squad's credit, so the bottom layer's table itself learns which of its
+    /// situations rewarded obedience. Bounded, deterministic, and cheap: the
+    /// trace is capped, the credit is clamped, and a convex mix keeps the Q
+    /// values from creeping forever.
+    pub(crate) fn collect_squad_payback(&mut self, intent: SquadIntent, reward: f32, scale: f32) {
+        use crate::organism::organism::QRowExt;
+        if !self.alive || reward <= 0.0 {
+            return;
+        }
+        let slot = intent.ledger_slot();
+        let obeyed = u32::from(self.squad_ledger[slot]);
+        if obeyed < OBEY_MIN {
+            return;
+        }
+        // Morale: the round-1 payback, kept as it was.
+        self.hope = (self.hope + 0.05).min(1.0);
+        self.joy_ticks = self.joy_ticks.saturating_add(240).min(1_200);
+        self.comfort = (self.comfort + 0.05).min(1.0);
+
+        // Tabular backpropagation: the squad's verdict becomes a small target
+        // for the aligned actions the member actually chose this epoch.
+        let credit = (reward.min(0.5) * scale).clamp(0.0, 0.05);
+        if credit <= 0.0 {
+            return;
+        }
+        let mut targets: Vec<(String, u16)> = Vec::with_capacity(8);
+        for (state, action) in self.learning_trace.iter().rev() {
+            let serves = intent_served(intent, usize::from(*action));
+            if !serves || targets.iter().any(|(s, a)| s == state && a == action) {
+                continue;
+            }
+            targets.push((state.clone(), *action));
+            if targets.len() >= 8 {
+                break;
+            }
+        }
+        if targets.is_empty() {
+            return;
+        }
+        let alpha = 0.06;
+        for (state, action) in targets {
+            let old = self.q_table.get(&state).map_or(0.0, |row| row.get_q(action));
+            let new = old + alpha * (credit - old);
+            if let Some(row) = self.q_table.get_mut(&state) {
+                row.set_q(action, new);
+            } else {
+                let mut row = crate::organism::organism::QRow::default();
+                row.set_q(action, new);
+                self.q_table.insert(state.clone(), row);
+            }
+            // The credit is a coarse signal by design; let it spread into the
+            // generalisation row the same way the tick's own TD step does.
+            if let Some(key) = crate::organism::organism::generalization_key(&state) {
+                let row = self.q_table.entry(key).or_default();
+                let prior = row.get_q(action);
+                row.set_q(action, prior + alpha * 0.25 * (credit - prior));
+            }
+        }
+    }
+
     /// The bottom-layer vector state, from data the sensing pass already has.
     ///
     /// `nearby` holds the population indices the perception scan found;
@@ -165,6 +232,17 @@ impl crate::organism::organism::Organism {
             }
         }
         boost
+    }
+}
+
+/// Does this concrete action serve the dispatched squad intent? The same
+/// rule the bonds phase uses to book actions into the obedience ledger, so
+/// the payback's credit assignment and the booking always agree.
+fn intent_served(intent: SquadIntent, action: usize) -> bool {
+    match intent {
+        SquadIntent::Gather => MacroIntent::of_action(action) == Some(MacroIntent::Follow),
+        SquadIntent::Disperse => MacroIntent::of_action(action) == Some(MacroIntent::Forage),
+        SquadIntent::Migrate => action <= 7,
     }
 }
 
@@ -284,6 +362,7 @@ impl crate::sim::simulation::Simulation {
         self.hierarchy.squads = fresh;
 
         // Dispatch (or expire) the runtime squad fields on every organism.
+        let now = self.tick_count;
         for brains in self.hierarchy.squads.values() {
             for brain in brains {
                 let stats = squad::squad_stats_of(self, &brain.members);
@@ -295,13 +374,18 @@ impl crate::sim::simulation::Simulation {
                     o.squad_centroid = stats.centroid;
                     o.squad_target = brain.target;
                     o.squad_confidence = brain.confidence;
+                    // The thought bubble: what the band is up to, in the
+                    // shared thought voice. `think` dedupes, so a rebuilt
+                    // band that keeps its intent does not spam history, and
+                    // an urgent need keeps its bubble until it eases.
+                    o.think(brain.intent.bubble(), now);
                 }
             }
         }
         for (i, in_squad) in member_of.into_iter().enumerate() {
             if !in_squad && self.organisms[i].squad_intent_until > 0 {
                 self.organisms[i].squad_intent_until = 0;
-                self.organisms[i].squad_obeyed = 0;
+                self.organisms[i].squad_ledger = [0; LEDGER_SLOTS];
             }
         }
     }
@@ -372,19 +456,16 @@ impl crate::sim::simulation::Simulation {
                     );
                     brain.learn(last_state, last_action, reward, state);
                     // Backpropagation: obedience that helped the band is paid
-                    // back in morale, mirroring the strategy-objective rewards.
+                    // back — in morale, and now in the obedient members' own
+                    // tabular Q (per-action credit through the ledger).
                     if reward > 0.05 {
+                        let scale = 0.25 + 0.75 * brain.confidence;
                         for &m in &brain.members {
-                            let o = &mut self.organisms[m];
-                            if o.alive && o.squad_obeyed >= 8 {
-                                o.hope = (o.hope + 0.05).min(1.0);
-                                o.joy_ticks = o.joy_ticks.saturating_add(240).min(1_200);
-                                o.comfort = (o.comfort + 0.05).min(1.0);
-                            }
+                            self.organisms[m].collect_squad_payback(brain.intent, reward, scale);
                         }
                     }
                     for &m in &brain.members {
-                        self.organisms[m].squad_obeyed = 0;
+                        self.organisms[m].squad_ledger = [0; LEDGER_SLOTS];
                     }
                 }
 
@@ -413,6 +494,9 @@ impl crate::sim::simulation::Simulation {
                     o.squad_centroid = brain.epoch_stats.centroid;
                     o.squad_target = brain.target;
                     o.squad_confidence = brain.confidence;
+                    // The bubble rides along with the dispatch: a fresh
+                    // intent reads as a fresh thought; a re-chosen one dedupes.
+                    o.think(brain.intent.bubble(), tick);
                 }
             }
             self.hierarchy.squads.insert(lineage, brains);
@@ -483,13 +567,14 @@ impl crate::sim::simulation::Simulation {
             e.1 += o.energy;
         }
         let mut order: Vec<(String, TribeStats)> = Vec::new();
-        for (lid, (population, energy_sum)) in acc {
+        for (lid, (population, energy_sum)) in acc.iter() {
+            let (population, energy_sum) = (*population, *energy_sum);
             if population < 4 {
                 continue;
             }
             let era = self
                 .lineage_eras
-                .get(&lid)
+                .get(lid.as_str())
                 .copied()
                 .unwrap_or(crate::sim::civ::progress::eras::LADDER[0]);
             let era_index = crate::sim::civ::progress::eras::LADDER
@@ -528,8 +613,14 @@ impl crate::sim::simulation::Simulation {
             let stressed = stats.avg_energy < 0.4;
             let state = TribeBrain::state_index(&stats, stressed);
             let brain = self.hierarchy.tribes.entry(lineage.clone()).or_default();
+            // Count the epoch just finished: a War posture over an actual war
+            // accrues weariness, which the reward below must feel.
+            if brain.action == TribeAction::War && stats.at_war {
+                brain.war_epochs = brain.war_epochs.saturating_add(1);
+            }
             if let Some(last_state) = brain.last_state {
-                let reward = tribe::tribe_epoch_reward(&brain.epoch_stats, &stats);
+                let reward = tribe::tribe_epoch_reward(&brain.epoch_stats, &stats)
+                    - tribe::war_weariness(brain.war_epochs, brain.action, stats.at_war);
                 let last_action = brain.action;
                 brain.learn(last_state, last_action, reward, state);
             }
@@ -541,7 +632,27 @@ impl crate::sim::simulation::Simulation {
             brain.epoch_stats = stats;
             brain.last_state = Some(state);
             brain.epochs += 1;
+            // A posture change (or a peace) resets the war-weariness clock;
+            // staying at war keeps it running.
+            if action != TribeAction::War || !stats.at_war {
+                brain.war_epochs = 0;
+            }
             let policy = TribePolicy::of(action);
+            // The war-weariness coupling also reaches the outside: the attack
+            // weight broadcast fades as consecutive war epochs accrue.
+            let attack_mult = if action == TribeAction::War {
+                tribe::effective_attack_mult(brain.war_epochs)
+            } else {
+                policy.attack_mult
+            };
+            // The Ally posture warms attitudes toward every living foreign
+            // lineage (sorted keys from the census above), making friendly
+            // diplomacy actually reachable.
+            let others: Vec<crate::intern::Sym> = acc
+                .keys()
+                .copied()
+                .filter(|&k| k.as_str() != lineage.as_str())
+                .collect();
 
             let mut members = 0usize;
             for o in self
@@ -549,7 +660,8 @@ impl crate::sim::simulation::Simulation {
                 .iter_mut()
                 .filter(|o| o.alive && o.lineage_id.as_str() == lineage.as_str())
             {
-                o.tribe_attack_mult = policy.attack_mult;
+                o.tribe_attack_mult = attack_mult;
+                tribe::drift_attitudes_for_posture(o, &others, action);
                 if action == TribeAction::Missionary {
                     o.piety = (o.piety + 0.01).min(1.0);
                 }

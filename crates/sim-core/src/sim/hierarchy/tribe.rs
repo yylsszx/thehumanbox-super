@@ -17,6 +17,14 @@ pub(crate) const TRIBE_EPOCH: u64 = 600;
 pub(crate) const TRIBE_STATES: usize = 48; // pop 4 × tech 3 × war 2 × stress 2
 pub(crate) const TRIBE_ACTIONS: usize = 4;
 
+/// One tribe-epoch of `Ally` posture warms every foreign attitude by this
+/// much (reaching `form_alliance`'s 0.2 threshold in four epochs from 0).
+pub(crate) const ALLY_DRIFT: f32 = 0.05;
+/// Weariness the tribe's Q table feels per consecutive epoch spent actually
+/// fighting under a `War` posture (capped).
+pub(crate) const WEARINESS_PER_EPOCH: f32 = 0.02;
+pub(crate) const WEARINESS_CAP: f32 = 0.30;
+
 /// The posture a tribe brain broadcasts to its people.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum TribeAction {
@@ -44,6 +52,19 @@ impl TribeAction {
         TribeAction::Missionary,
         TribeAction::Research,
     ];
+
+    /// The wire name of this posture: what the frame's `tribe_posture`
+    /// payload puts on the tribe card's badge. Lowercase, stable, never
+    /// renamed — old clients keep rendering old saves.
+    #[inline]
+    pub fn name(self) -> &'static str {
+        match self {
+            TribeAction::War => "war",
+            TribeAction::Ally => "ally",
+            TribeAction::Missionary => "missionary",
+            TribeAction::Research => "research",
+        }
+    }
 }
 
 /// The tribe-level snapshot an epoch is judged against.
@@ -74,6 +95,11 @@ pub struct TribeBrain {
     pub epoch_stats: TribeStats,
     #[serde(default)]
     pub epochs: u32,
+    /// Consecutive epochs the tribe has spent actually fighting under a `War`
+    /// posture. Drives the war-weariness coupling: the Q table's reward and
+    /// the broadcast attack weight both fade as it grows.
+    #[serde(default)]
+    pub war_epochs: u32,
 }
 
 fn default_tribe_q() -> Vec<[f32; TRIBE_ACTIONS]> {
@@ -89,6 +115,7 @@ impl Default for TribeBrain {
             action_started: 0,
             epoch_stats: TribeStats::default(),
             epochs: 0,
+            war_epochs: 0,
         }
     }
 }
@@ -233,9 +260,59 @@ pub(crate) fn tribe_epoch_reward(before: &TribeStats, after: &TribeStats) -> f32
     reward
 }
 
+/// War-weariness coupling: epochs spent actually fighting under a `War`
+/// posture gradually cost the tribe's own Q table, so the top layer can
+/// learn to turn away from an endless war instead of holding it forever.
+/// Posturing without a war, and any posture other than `War`, costs nothing.
+pub(crate) fn war_weariness(war_epochs: u32, action: TribeAction, at_war: bool) -> f32 {
+    if action != TribeAction::War || !at_war || war_epochs == 0 {
+        return 0.0;
+    }
+    (war_epochs as f32 * WEARINESS_PER_EPOCH).min(WEARINESS_CAP)
+}
+
+/// The attack weight actually broadcast for a `War` posture: the full
+/// coefficient on a fresh war, fading toward fatigue as consecutive war
+/// epochs accrue. (`TribePolicy::of(War).attack_mult` is the epoch-0 value.)
+pub(crate) fn effective_attack_mult(war_epochs: u32) -> f32 {
+    1.0 + (TribePolicy::of(TribeAction::War).attack_mult - 1.0) / (1.0 + 0.25 * war_epochs as f32)
+}
+
+/// The `Ally` posture's attitude drift: a tribe that means well warms every
+/// relationship it has with every living foreign lineage, so friendly
+/// gestures (`form_alliance` needs attitude > 0.2, envoys, trade, truce)
+/// become reachable. Deterministic: the caller passes the other lineage ids
+/// already sorted; the map itself is a `BTreeMap`.
+pub(crate) fn drift_attitudes_for_posture(
+    o: &mut crate::organism::organism::Organism,
+    others: &[crate::intern::Sym],
+    action: TribeAction,
+) {
+    if action != TribeAction::Ally {
+        return;
+    }
+    for &lid in others {
+        if lid == o.lineage_id {
+            continue;
+        }
+        let att = o.lineage_attitudes.entry(lid).or_insert(0.0);
+        *att = (*att + ALLY_DRIFT).min(1.0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn posture_names_are_wire_stable() {
+        // The tribe card badge reads these verbatim from the frame payload;
+        // never rename them — old saves and old clients depend on the words.
+        assert_eq!(TribeAction::War.name(), "war");
+        assert_eq!(TribeAction::Ally.name(), "ally");
+        assert_eq!(TribeAction::Missionary.name(), "missionary");
+        assert_eq!(TribeAction::Research.name(), "research");
+    }
 
     #[test]
     fn tribe_q_learning_pulls_values_toward_reward() {
@@ -310,5 +387,72 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn war_weariness_grows_only_while_actually_fighting() {
+        let one = war_weariness(1, TribeAction::War, true);
+        let ten = war_weariness(10, TribeAction::War, true);
+        let fifty = war_weariness(50, TribeAction::War, true);
+        assert!(one > 0.0);
+        assert!(ten > one);
+        assert_eq!(fifty, WEARINESS_CAP, "weariness caps");
+        assert_eq!(
+            war_weariness(5, TribeAction::War, false),
+            0.0,
+            "drums without war are free"
+        );
+        assert_eq!(war_weariness(5, TribeAction::Research, true), 0.0);
+        assert_eq!(war_weariness(0, TribeAction::War, true), 0.0);
+    }
+
+    #[test]
+    fn attack_weight_fades_as_wars_drag_on() {
+        let fresh = effective_attack_mult(0);
+        assert_eq!(fresh, TribePolicy::of(TribeAction::War).attack_mult);
+        assert!(effective_attack_mult(1) < fresh);
+        assert!(effective_attack_mult(12) < effective_attack_mult(4));
+        assert!(
+            effective_attack_mult(100) > 1.0,
+            "fatigue softens but never disarms"
+        );
+    }
+
+    #[test]
+    fn ally_posture_drifts_attitudes_but_other_postures_do_not() {
+        use crate::intern::Sym;
+        let mut o = crate::organism::organism::Organism::new(
+            Sym::from("Zozo"),
+            "Zozo".to_string(),
+            3.0,
+            4.0,
+            0,
+            String::new(),
+            Sym::from("Home"),
+            20,
+            crate::organism::traits::Traits::default(),
+        );
+        let (a, b, c) = (Sym::from("Alph"), Sym::from("Beta"), Sym::from("Home"));
+        o.lineage_attitudes.insert(a, -0.5);
+        o.lineage_attitudes.insert(b, 1.0);
+        let others = vec![a, b, c];
+        drift_attitudes_for_posture(&mut o, &others, TribeAction::Ally);
+        assert!(
+            (o.lineage_attitudes[&a] - (-0.5 + ALLY_DRIFT)).abs() < 1e-6,
+            "rivals thaw"
+        );
+        assert_eq!(o.lineage_attitudes[&b], 1.0, "warmth caps at 1.0");
+        assert!(!o.lineage_attitudes.contains_key(&c), "own lineage never drifts");
+        let before = o.lineage_attitudes[&a];
+        drift_attitudes_for_posture(&mut o, &others, TribeAction::Research);
+        assert_eq!(
+            o.lineage_attitudes[&a], before,
+            "non-Ally postures leave attitudes alone"
+        );
+        assert_eq!(
+            o.attitude_toward("Alph"),
+            before,
+            "attitude_toward sees the drift"
+        );
     }
 }

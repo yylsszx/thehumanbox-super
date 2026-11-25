@@ -1,6 +1,7 @@
 //! Integration tests for the multi-layer Q-learning hierarchy.
 
 use super::*;
+use crate::organism::organism::QRowExt;
 use crate::sim::simulation::Simulation;
 
 /// Force a tight kin cluster: the first living organisms become one lineage
@@ -99,7 +100,10 @@ fn squad_epoch_learns_and_backpropagates() {
     for &m in &members {
         let o = &mut sim.organisms[m];
         if o.alive {
-            o.squad_obeyed = 20;
+            o.squad_ledger[SquadIntent::Gather.ledger_slot()] = 20;
+            o.learning_trace = vec![("0123456789abcdefghijk".to_string(), 10)];
+            o.q_table
+                .insert("0123456789abcdefghijk".to_string(), vec![(10, 0.0)]);
             o.hope = 0.0;
             o.joy_ticks = 0;
             o.energy = 0.95;
@@ -115,6 +119,133 @@ fn squad_epoch_learns_and_backpropagates() {
         .filter(|&&m| sim.organisms[m].alive && sim.organisms[m].hope > 0.0)
         .count();
     assert!(paid > 0, "obedience should be rewarded when the band fares well");
+    let credited = members
+        .iter()
+        .filter(|&&m| {
+            let o = &sim.organisms[m];
+            o.alive
+                && o.q_table
+                    .get("0123456789abcdefghijk")
+                    .map_or(0.0, |row| row.get_q(10))
+                    > 0.0
+        })
+        .count();
+    assert!(
+        credited > 0,
+        "the squad's verdict must reach the members' tabular Q"
+    );
+    assert!(
+        members
+            .iter()
+            .all(|&m| sim.organisms[m].squad_ledger == [0; LEDGER_SLOTS]),
+        "the ledger clears at the epoch boundary"
+    );
+}
+
+#[test]
+fn ally_posture_warms_attitudes_toward_foreign_lineages() {
+    let mut sim = Simulation::new(0xA117);
+    let lineage = force_cluster(&mut sim, 5);
+    // A living foreign lineage to be warm toward.
+    let foreign = {
+        let idx = sim
+            .organisms
+            .iter()
+            .position(|o| o.alive && o.lineage_id.as_str() != lineage.as_str())
+            .expect("the world must hold more than one lineage");
+        sim.organisms[idx].lineage_id
+    };
+    // Prime the brain so the epoch's exploit always picks Ally (index 1).
+    let mut brain = TribeBrain::default();
+    for row in brain.q.iter_mut() {
+        *row = [-1.0, 10.0, -1.0, -1.0];
+    }
+    sim.hierarchy.tribes.insert(lineage.clone(), brain);
+    // Find a tick whose deterministic roll clears the exploration band.
+    let tick = (1..200u64)
+        .map(|k| k * tribe::TRIBE_EPOCH)
+        .find(|&t| hierarchy_roll(t, 0x7AB1, &lineage) >= 0.25)
+        .expect("a deterministically exploitable tick exists");
+    sim.tick_count = tick;
+    sim.hierarchy_tribe_epoch();
+
+    for o in sim
+        .organisms
+        .iter()
+        .filter(|o| o.alive && o.lineage_id.as_str() == lineage.as_str())
+    {
+        let att = o.attitude_toward(foreign.as_str());
+        assert!(
+            (att - tribe::ALLY_DRIFT).abs() < 1e-6,
+            "one Ally epoch warms the foreigner by ALLY_DRIFT, got {att}"
+        );
+        assert!(
+            (o.tribe_attack_mult - 1.0).abs() < 1e-6,
+            "Ally does not arm anyone"
+        );
+    }
+}
+
+#[test]
+fn wearied_wars_soften_the_broadcast_attack_weight() {
+    let mut sim = Simulation::new(0x0FA3);
+    let lineage = force_cluster(&mut sim, 5);
+    sim.battles.push(crate::sim::warfare::Battle {
+        id: "b1".into(),
+        attackers: vec![lineage.clone()],
+        defenders: vec!["Foe".into()],
+        attacker_orgs: vec![],
+        defender_orgs: vec![],
+        scale: crate::sim::warfare::BattleScale::Skirmish,
+        location: (5, 5),
+        started_tick: 0,
+        ended_tick: None,
+        casualties_a: 0,
+        casualties_d: 0,
+        outcome: None,
+        initial_a: 2,
+        initial_d: 2,
+        routed_a: false,
+        routed_d: false,
+    });
+    // Prime the brain so the epoch's exploit always picks War (index 0).
+    let mut brain = TribeBrain::default();
+    for row in brain.q.iter_mut() {
+        *row = [10.0, -1.0, -1.0, -1.0];
+    }
+    sim.hierarchy.tribes.insert(lineage.clone(), brain);
+    let tick = (1..200u64)
+        .map(|k| k * tribe::TRIBE_EPOCH)
+        .find(|&t| hierarchy_roll(t, 0x7AB1, &lineage) >= 0.05)
+        .expect("a deterministically exploitable tick exists");
+    sim.tick_count = tick;
+    sim.hierarchy_tribe_epoch();
+    let first = sim
+        .organisms
+        .iter()
+        .find(|o| o.alive && o.lineage_id.as_str() == lineage.as_str())
+        .unwrap()
+        .tribe_attack_mult;
+    assert!(
+        (first - tribe::effective_attack_mult(0)).abs() < 1e-6,
+        "a fresh war arms at full weight"
+    );
+
+    sim.tick_count = tick + tribe::TRIBE_EPOCH;
+    sim.hierarchy_tribe_epoch();
+    let second = sim
+        .organisms
+        .iter()
+        .find(|o| o.alive && o.lineage_id.as_str() == lineage.as_str())
+        .unwrap()
+        .tribe_attack_mult;
+    assert!(
+        second < first,
+        "the same war next epoch weighs less: {first} -> {second}"
+    );
+    assert!((second - tribe::effective_attack_mult(1)).abs() < 1e-5);
+    let brain = sim.hierarchy.tribes.get(&lineage).unwrap();
+    assert_eq!(brain.war_epochs, 1, "one war epoch has been counted");
 }
 
 #[test]
@@ -247,4 +378,113 @@ fn state_vector_features_track_the_body() {
     assert!(sv.enemy_proximity() > 0.7);
     assert_eq!(sv.threat_level(), 0.3);
     assert_eq!(sv.ally_count(), 0.0);
+}
+
+#[test]
+fn obedience_payback_credits_the_tabular_q() {
+    let mut sim = Simulation::new(0x1ED6);
+    let idx = sim.organisms.iter().position(|o| o.alive).unwrap();
+    // 21-byte state keys, so the generalisation row participates too.
+    let follower = "0123456789abcdefghijk";
+    let defied = "9876543210zyxwvutsrqp";
+    {
+        let o = &mut sim.organisms[idx];
+        // The member obeyed a Gather dispatch (followed), once duplicating a
+        // trace entry to prove the dedupe, and once defied (foraged).
+        o.learning_trace = vec![
+            (follower.to_string(), 10),
+            (follower.to_string(), 10),
+            (defied.to_string(), 8),
+        ];
+        o.q_table.insert(follower.to_string(), vec![(10, 0.01)]);
+        o.q_table.insert(defied.to_string(), vec![(8, 0.01)]);
+        o.squad_ledger[SquadIntent::Gather.ledger_slot()] = 20;
+    }
+    sim.organisms[idx].collect_squad_payback(SquadIntent::Gather, 0.4, 1.0);
+
+    let o = &sim.organisms[idx];
+    let follow_q = o.q_table.get(follower).unwrap().get_q(10);
+    let expected = 0.01 + 0.06 * (0.05 - 0.01);
+    assert!(
+        (follow_q - expected).abs() < 1e-6,
+        "follow Q should be pulled toward the squad's credit once: {follow_q}"
+    );
+    let defied_q = o.q_table.get(defied).unwrap().get_q(8);
+    assert!(
+        (defied_q - 0.01).abs() < 1e-9,
+        "the defied slot must not be credited"
+    );
+    let coarse = crate::organism::organism::generalization_key(follower).unwrap();
+    assert!(
+        o.q_table.get(&coarse).unwrap().get_q(10) > 0.0,
+        "the coarse row shares the credit"
+    );
+    // Morale still rides along with the tabular payback.
+    assert!(o.hope > 0.0);
+}
+
+#[test]
+fn payback_needs_the_ledger_to_vouch() {
+    let mut sim = Simulation::new(0xD0D0);
+    let idx = sim.organisms.iter().position(|o| o.alive).unwrap();
+    let state = "0123456789abcdefghijk";
+    {
+        let o = &mut sim.organisms[idx];
+        o.learning_trace = vec![(state.to_string(), 10)];
+        o.q_table.insert(state.to_string(), vec![(10, 0.01)]);
+        o.hope = 0.0;
+        o.squad_ledger = [0; LEDGER_SLOTS];
+    }
+    sim.organisms[idx].collect_squad_payback(SquadIntent::Gather, 0.4, 1.0);
+
+    let o = &sim.organisms[idx];
+    assert_eq!(o.hope, 0.0, "no morale without ledger obedience");
+    assert_eq!(
+        o.q_table.get(state).unwrap().get_q(10),
+        0.01,
+        "no tabular credit either"
+    );
+}
+
+#[test]
+fn migrate_payback_credits_plain_steps() {
+    let mut sim = Simulation::new(0x3757);
+    let idx = sim.organisms.iter().position(|o| o.alive).unwrap();
+    let state = "0123456789abcdefghijk";
+    {
+        let o = &mut sim.organisms[idx];
+        o.learning_trace = vec![(state.to_string(), 3)];
+        o.q_table.insert(state.to_string(), vec![(3, 0.0)]);
+        o.squad_ledger[SquadIntent::Migrate.ledger_slot()] = 12;
+    }
+    sim.organisms[idx].collect_squad_payback(SquadIntent::Migrate, 0.3, 1.0);
+    let q = sim.organisms[idx].q_table.get(state).unwrap().get_q(3);
+    assert!(q > 0.0, "walking the march should be credited in the table: {q}");
+}
+
+#[test]
+fn dispatch_thinks_the_intent_bubble() {
+    let mut sim = Simulation::new(0x60D5);
+    force_cluster(&mut sim, 6);
+    sim.tick_count = squad::SQUAD_REBUILD_EVERY;
+    sim.hierarchy_rebuild_squads();
+
+    let mut bubbled = 0;
+    for brains in sim.hierarchy.squads.values() {
+        for brain in brains {
+            for &m in &brain.members {
+                let o = &sim.organisms[m];
+                if !o.alive {
+                    continue;
+                }
+                // The bubble carries the dispatched intent in the shared
+                // thought voice, and the delta builder will ship it (dirty).
+                assert_eq!(o.thought, brain.intent.bubble());
+                assert!(o.thought_dirty, "the bubble must reach the next delta");
+                assert!(!crate::organism::organism::is_need_thought(&o.thought));
+                bubbled += 1;
+            }
+        }
+    }
+    assert!(bubbled > 0, "the forced cluster must dispatch a bubble");
 }
