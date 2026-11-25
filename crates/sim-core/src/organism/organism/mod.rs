@@ -117,9 +117,13 @@ pub struct Organism {
     pub squad_target: (i32, i32),
     /// How strongly the squad's intent shapes rewards, `0..=1`. Runtime only.
     pub squad_confidence: f32,
-    /// Ticks this epoch the member acted along the dispatched intent.
-    /// Runtime only; read and reset at squad epochs.
-    pub squad_obeyed: u32,
+    /// Per-macro-intent count of what this member actually did while a squad
+    /// intent was in force this epoch (slots follow `MacroIntent::index()`,
+    /// the trailing slot is plain steps). Replaces the old obedience counter:
+    /// the dispatched intent's slot measures obedience, the rest give the
+    /// credit-assignment its context. Runtime only; read and reset at squad
+    /// epochs.
+    pub squad_ledger: [u16; crate::sim::hierarchy::squad::LEDGER_SLOTS],
     /// The top layer's attack-weight coefficient (the "宣战" multiplier).
     /// Runtime only, broadcast at tribe epochs.
     pub tribe_attack_mult: f32,
@@ -306,7 +310,7 @@ impl Organism {
             squad_centroid: (x, y),
             squad_target: (x as i32, y as i32),
             squad_confidence: 0.0,
-            squad_obeyed: 0,
+            squad_ledger: [0; crate::sim::hierarchy::squad::LEDGER_SLOTS],
             tribe_attack_mult: 1.0,
             loneliness: 0.0,
             boredom: 0.0,

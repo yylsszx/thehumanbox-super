@@ -1,6 +1,7 @@
 //! Integration tests for the multi-layer Q-learning hierarchy.
 
 use super::*;
+use crate::organism::organism::QRowExt;
 use crate::sim::simulation::Simulation;
 
 /// Force a tight kin cluster: the first living organisms become one lineage
@@ -99,7 +100,10 @@ fn squad_epoch_learns_and_backpropagates() {
     for &m in &members {
         let o = &mut sim.organisms[m];
         if o.alive {
-            o.squad_obeyed = 20;
+            o.squad_ledger[SquadIntent::Gather.ledger_slot()] = 20;
+            o.learning_trace = vec![("0123456789abcdefghijk".to_string(), 10)];
+            o.q_table
+                .insert("0123456789abcdefghijk".to_string(), vec![(10, 0.0)]);
             o.hope = 0.0;
             o.joy_ticks = 0;
             o.energy = 0.95;
@@ -115,6 +119,27 @@ fn squad_epoch_learns_and_backpropagates() {
         .filter(|&&m| sim.organisms[m].alive && sim.organisms[m].hope > 0.0)
         .count();
     assert!(paid > 0, "obedience should be rewarded when the band fares well");
+    let credited = members
+        .iter()
+        .filter(|&&m| {
+            let o = &sim.organisms[m];
+            o.alive
+                && o.q_table
+                    .get("0123456789abcdefghijk")
+                    .map_or(0.0, |row| row.get_q(10))
+                    > 0.0
+        })
+        .count();
+    assert!(
+        credited > 0,
+        "the squad's verdict must reach the members' tabular Q"
+    );
+    assert!(
+        members
+            .iter()
+            .all(|&m| sim.organisms[m].squad_ledger == [0; LEDGER_SLOTS]),
+        "the ledger clears at the epoch boundary"
+    );
 }
 
 #[test]
@@ -247,4 +272,86 @@ fn state_vector_features_track_the_body() {
     assert!(sv.enemy_proximity() > 0.7);
     assert_eq!(sv.threat_level(), 0.3);
     assert_eq!(sv.ally_count(), 0.0);
+}
+
+#[test]
+fn obedience_payback_credits_the_tabular_q() {
+    let mut sim = Simulation::new(0x1ED6);
+    let idx = sim.organisms.iter().position(|o| o.alive).unwrap();
+    // 21-byte state keys, so the generalisation row participates too.
+    let follower = "0123456789abcdefghijk";
+    let defied = "9876543210zyxwvutsrqp";
+    {
+        let o = &mut sim.organisms[idx];
+        // The member obeyed a Gather dispatch (followed), once duplicating a
+        // trace entry to prove the dedupe, and once defied (foraged).
+        o.learning_trace = vec![
+            (follower.to_string(), 10),
+            (follower.to_string(), 10),
+            (defied.to_string(), 8),
+        ];
+        o.q_table.insert(follower.to_string(), vec![(10, 0.01)]);
+        o.q_table.insert(defied.to_string(), vec![(8, 0.01)]);
+        o.squad_ledger[SquadIntent::Gather.ledger_slot()] = 20;
+    }
+    sim.organisms[idx].collect_squad_payback(SquadIntent::Gather, 0.4, 1.0);
+
+    let o = &sim.organisms[idx];
+    let follow_q = o.q_table.get(follower).unwrap().get_q(10);
+    let expected = 0.01 + 0.06 * (0.05 - 0.01);
+    assert!(
+        (follow_q - expected).abs() < 1e-6,
+        "follow Q should be pulled toward the squad's credit once: {follow_q}"
+    );
+    let defied_q = o.q_table.get(defied).unwrap().get_q(8);
+    assert!(
+        (defied_q - 0.01).abs() < 1e-9,
+        "the defied slot must not be credited"
+    );
+    let coarse = crate::organism::organism::generalization_key(follower).unwrap();
+    assert!(
+        o.q_table.get(&coarse).unwrap().get_q(10) > 0.0,
+        "the coarse row shares the credit"
+    );
+    // Morale still rides along with the tabular payback.
+    assert!(o.hope > 0.0);
+}
+
+#[test]
+fn payback_needs_the_ledger_to_vouch() {
+    let mut sim = Simulation::new(0xD0D0);
+    let idx = sim.organisms.iter().position(|o| o.alive).unwrap();
+    let state = "0123456789abcdefghijk";
+    {
+        let o = &mut sim.organisms[idx];
+        o.learning_trace = vec![(state.to_string(), 10)];
+        o.q_table.insert(state.to_string(), vec![(10, 0.01)]);
+        o.hope = 0.0;
+        o.squad_ledger = [0; LEDGER_SLOTS];
+    }
+    sim.organisms[idx].collect_squad_payback(SquadIntent::Gather, 0.4, 1.0);
+
+    let o = &sim.organisms[idx];
+    assert_eq!(o.hope, 0.0, "no morale without ledger obedience");
+    assert_eq!(
+        o.q_table.get(state).unwrap().get_q(10),
+        0.01,
+        "no tabular credit either"
+    );
+}
+
+#[test]
+fn migrate_payback_credits_plain_steps() {
+    let mut sim = Simulation::new(0x3757);
+    let idx = sim.organisms.iter().position(|o| o.alive).unwrap();
+    let state = "0123456789abcdefghijk";
+    {
+        let o = &mut sim.organisms[idx];
+        o.learning_trace = vec![(state.to_string(), 3)];
+        o.q_table.insert(state.to_string(), vec![(3, 0.0)]);
+        o.squad_ledger[SquadIntent::Migrate.ledger_slot()] = 12;
+    }
+    sim.organisms[idx].collect_squad_payback(SquadIntent::Migrate, 0.3, 1.0);
+    let q = sim.organisms[idx].q_table.get(state).unwrap().get_q(3);
+    assert!(q > 0.0, "walking the march should be credited in the table: {q}");
 }

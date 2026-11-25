@@ -200,17 +200,15 @@ impl Simulation {
         }
 
         // The hierarchy's slice of the shaped reward: the tribe's baseline
-        // and posture, the squad's intent shaping. Then obedience is noted
-        // for the squad's epoch-end backpropagation.
+        // and posture, the squad's intent shaping. Then the action is booked
+        // into the per-intent obedience ledger while a squad intent is in
+        // force: the dispatched intent's slot measures obedience, the other
+        // slots give the epoch's credit assignment its context.
         reward += self.hierarchy_member_shaping(lineage.as_str(), idx, action, ox, oy);
         if self.tick_count < self.organisms[idx].squad_intent_until {
-            let aligned = crate::sim::hierarchy::MacroIntent::of_action(action)
-                .is_some_and(|mi| Some(mi) == self.organisms[idx].squad_intent.macro_intent())
-                || (self.organisms[idx].squad_intent == crate::sim::hierarchy::SquadIntent::Migrate
-                    && action <= 7);
-            if aligned {
+            if let Some(slot) = crate::sim::hierarchy::ledger_slot_of_action(action) {
                 let o = &mut self.organisms[idx];
-                o.squad_obeyed = o.squad_obeyed.saturating_add(1);
+                o.squad_ledger[slot] = o.squad_ledger[slot].saturating_add(1);
             }
         }
 

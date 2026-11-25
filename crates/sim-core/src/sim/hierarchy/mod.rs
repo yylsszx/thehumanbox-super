@@ -33,6 +33,7 @@ pub mod vector;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use squad::{ledger_slot_of_action, LEDGER_SLOTS, OBEY_MIN};
 pub use squad::{SquadBrain, SquadIntent, SquadStats};
 pub use tribe::{TribeAction, TribeBrain, TribePolicy, TribeStats};
 pub use vector::{LinearQ, MacroIntent, StateVector};
@@ -73,6 +74,72 @@ pub(crate) fn hierarchy_roll(tick: u64, salt: u64, key: &str) -> f32 {
 }
 
 impl crate::organism::organism::Organism {
+    /// The middle layer's epoch verdict, propagated down into this member.
+    ///
+    /// When the band's epoch went well, a member who actually obeyed (per the
+    /// ledger: enough ticks spent on the dispatched intent) is paid back twice:
+    /// in morale, and — new this round — *in its own tabular Q*: the recent
+    /// trace entries that served the intent are pulled a little toward the
+    /// squad's credit, so the bottom layer's table itself learns which of its
+    /// situations rewarded obedience. Bounded, deterministic, and cheap: the
+    /// trace is capped, the credit is clamped, and a convex mix keeps the Q
+    /// values from creeping forever.
+    pub(crate) fn collect_squad_payback(&mut self, intent: SquadIntent, reward: f32, scale: f32) {
+        use crate::organism::organism::QRowExt;
+        if !self.alive || reward <= 0.0 {
+            return;
+        }
+        let slot = intent.ledger_slot();
+        let obeyed = u32::from(self.squad_ledger[slot]);
+        if obeyed < OBEY_MIN {
+            return;
+        }
+        // Morale: the round-1 payback, kept as it was.
+        self.hope = (self.hope + 0.05).min(1.0);
+        self.joy_ticks = self.joy_ticks.saturating_add(240).min(1_200);
+        self.comfort = (self.comfort + 0.05).min(1.0);
+
+        // Tabular backpropagation: the squad's verdict becomes a small target
+        // for the aligned actions the member actually chose this epoch.
+        let credit = (reward.min(0.5) * scale).clamp(0.0, 0.05);
+        if credit <= 0.0 {
+            return;
+        }
+        let mut targets: Vec<(String, u16)> = Vec::with_capacity(8);
+        for (state, action) in self.learning_trace.iter().rev() {
+            let serves = intent_served(intent, usize::from(*action));
+            if !serves || targets.iter().any(|(s, a)| s == state && a == action) {
+                continue;
+            }
+            targets.push((state.clone(), *action));
+            if targets.len() >= 8 {
+                break;
+            }
+        }
+        if targets.is_empty() {
+            return;
+        }
+        let alpha = 0.06;
+        for (state, action) in targets {
+            let old = self.q_table.get(&state).map_or(0.0, |row| row.get_q(action));
+            let new = old + alpha * (credit - old);
+            if let Some(row) = self.q_table.get_mut(&state) {
+                row.set_q(action, new);
+            } else {
+                let mut row = crate::organism::organism::QRow::default();
+                row.set_q(action, new);
+                self.q_table.insert(state.clone(), row);
+            }
+            // The credit is a coarse signal by design; let it spread into the
+            // generalisation row the same way the tick's own TD step does.
+            if let Some(key) = crate::organism::organism::generalization_key(&state) {
+                let row = self.q_table.entry(key).or_default();
+                let prior = row.get_q(action);
+                row.set_q(action, prior + alpha * 0.25 * (credit - prior));
+            }
+        }
+    }
+
     /// The bottom-layer vector state, from data the sensing pass already has.
     ///
     /// `nearby` holds the population indices the perception scan found;
@@ -165,6 +232,17 @@ impl crate::organism::organism::Organism {
             }
         }
         boost
+    }
+}
+
+/// Does this concrete action serve the dispatched squad intent? The same
+/// rule the bonds phase uses to book actions into the obedience ledger, so
+/// the payback's credit assignment and the booking always agree.
+fn intent_served(intent: SquadIntent, action: usize) -> bool {
+    match intent {
+        SquadIntent::Gather => MacroIntent::of_action(action) == Some(MacroIntent::Follow),
+        SquadIntent::Disperse => MacroIntent::of_action(action) == Some(MacroIntent::Forage),
+        SquadIntent::Migrate => action <= 7,
     }
 }
 
@@ -301,7 +379,7 @@ impl crate::sim::simulation::Simulation {
         for (i, in_squad) in member_of.into_iter().enumerate() {
             if !in_squad && self.organisms[i].squad_intent_until > 0 {
                 self.organisms[i].squad_intent_until = 0;
-                self.organisms[i].squad_obeyed = 0;
+                self.organisms[i].squad_ledger = [0; LEDGER_SLOTS];
             }
         }
     }
@@ -372,19 +450,16 @@ impl crate::sim::simulation::Simulation {
                     );
                     brain.learn(last_state, last_action, reward, state);
                     // Backpropagation: obedience that helped the band is paid
-                    // back in morale, mirroring the strategy-objective rewards.
+                    // back — in morale, and now in the obedient members' own
+                    // tabular Q (per-action credit through the ledger).
                     if reward > 0.05 {
+                        let scale = 0.25 + 0.75 * brain.confidence;
                         for &m in &brain.members {
-                            let o = &mut self.organisms[m];
-                            if o.alive && o.squad_obeyed >= 8 {
-                                o.hope = (o.hope + 0.05).min(1.0);
-                                o.joy_ticks = o.joy_ticks.saturating_add(240).min(1_200);
-                                o.comfort = (o.comfort + 0.05).min(1.0);
-                            }
+                            self.organisms[m].collect_squad_payback(brain.intent, reward, scale);
                         }
                     }
                     for &m in &brain.members {
-                        self.organisms[m].squad_obeyed = 0;
+                        self.organisms[m].squad_ledger = [0; LEDGER_SLOTS];
                     }
                 }
 

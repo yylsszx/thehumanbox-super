@@ -91,9 +91,9 @@ per organism); old saves load with defaults and re-learn.
   epochs, dispatch and reward shaping; tribe postures with baseline and
   attack weight; obedience backpropagation; persistence; 23 new tests.
   Untouched for future rounds:
-  - [ ] deeper credit assignment (per-action obedience ledger instead of a
+  - [x] deeper credit assignment (per-action obedience ledger instead of a
         counter; propagate squad rewards into the tabular Q of obedient
-        members, not just morale)
+        members, not just morale) — done in round 2
   - [ ] tribe postures that actually steer diplomacy (attitude drift for
         Ally, war-weariness coupling for War) instead of reward-shaping only
   - [ ] expose squad intents and tribe postures on the wire frame / UI
@@ -102,3 +102,28 @@ per organism); old saves load with defaults and re-learn.
         exploration pool, not just bias exploitation
   - [ ] inherit linear Q weights to children (currently re-learned)
   - [ ] tune epoch lengths and shaping scales against `headless` sweeps
+
+- **Round 2** — deeper credit assignment. The obedience counter became a
+  **per-action ledger** on every member: while a squad intent is in force,
+  each action books itself into its macro-intent slot
+  (`ledger_slot_of_action` — Forage / Drink / Flee / Fight / Follow, plus a
+  trailing slot for plain steps, the currency of `Migrate`). The dispatched
+  intent's slot counts exactly what the old counter counted; the other
+  slots now record defiance and context for free. At the epoch boundary, a
+  band that fared well pays its obedient members twice:
+  - the round-1 morale payback (hope / joy / comfort), unchanged;
+  - new: a **tabular backpropagation** — `collect_squad_payback` walks the
+    member's learning trace (newest first, deduplicated, capped at 8), and
+    pulls the Q rows of the entries that served the dispatched intent
+    toward the squad's verdict: `credit = reward × confidence scale`,
+    clamped to 0.05, applied as a convex mix (α = 0.06) so repeated epochs
+    converge instead of creeping, with the coarse generalisation row
+    sharing a quarter share, exactly like the tick's own TD step.
+  Defiance books into its own slots and is credited nowhere. The credit is
+  gated on the ledger vouching (`OBEY_MIN = 8` obeying ticks) and nothing
+  above the bottom layer ever picks a bottom-layer action — the squad only
+  writes into the table its members learn from. Runtime-only (no save
+  format change); 4 new tests, 27 hierarchy tests total; fmt + clippy clean.
+  The long dispersal integration test exposed a latent overflow (u8 tool
+  counter in `salt_meat`), fixed with `saturating_add`; the rest of the
+  1370-test suite is green.
