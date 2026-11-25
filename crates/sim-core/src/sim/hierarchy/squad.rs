@@ -10,7 +10,7 @@
 //! tilts the field they learn on, and the strength of the tilt grows with how
 //! well the intent has actually worked (the brain's confidence).
 
-use super::vector::MacroIntent;
+use super::vector::{MacroIntent, MACRO_INTENT_COUNT};
 
 /// Rebuild the kin clusters this often (cheap: buckets + union-find).
 pub(crate) const SQUAD_REBUILD_EVERY: u64 = 30;
@@ -26,6 +26,12 @@ const SQUAD_CELL: i32 = 8;
 
 pub(crate) const SQUAD_STATES: usize = 36; // food 3 × size 3 × threat 2 × rival 2
 pub(crate) const SQUAD_ACTIONS: usize = 3;
+
+/// The per-action obedience ledger lives on each organism: one slot per
+/// macro intent plus one for plain steps (the currency of `Migrate`).
+pub(crate) const LEDGER_SLOTS: usize = MACRO_INTENT_COUNT + 1;
+/// A member collects the epoch's payback only after this many obeying ticks.
+pub(crate) const OBEY_MIN: u32 = 8;
 
 /// The intent a squad brain dispatches to its members.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -51,6 +57,30 @@ impl SquadIntent {
 
     pub const ALL: [SquadIntent; 3] = [SquadIntent::Gather, SquadIntent::Disperse, SquadIntent::Migrate];
 
+    /// The wire name of this intent: what the frame payload and the client's
+    /// squad panel / thought bubble read. Lowercase, stable, never renamed.
+    #[inline]
+    pub fn name(self) -> &'static str {
+        match self {
+            SquadIntent::Gather => "gather",
+            SquadIntent::Disperse => "disperse",
+            SquadIntent::Migrate => "migrate",
+        }
+    }
+
+    /// The thought bubble a member thinks when the intent reaches it, in the
+    /// same voice as every other thought ("moving to water", "observing").
+    /// The dispatch site runs it through `Organism::think`, so urgent needs
+    /// keep the bubble and re-choosing the same intent does not spam history.
+    #[inline]
+    pub fn bubble(self) -> &'static str {
+        match self {
+            SquadIntent::Gather => "gathering with the band",
+            SquadIntent::Disperse => "scattering to forage",
+            SquadIntent::Migrate => "moving with the band",
+        }
+    }
+
     /// The macro intent this squad intent nudges members toward, if any.
     /// `Migrate` works through plain steps, which carry no macro intent.
     #[inline]
@@ -61,6 +91,31 @@ impl SquadIntent {
             SquadIntent::Migrate => None,
         }
     }
+
+    /// The ledger slot that counts obedience to this intent.
+    #[inline]
+    pub fn ledger_slot(self) -> usize {
+        match self {
+            SquadIntent::Gather => MacroIntent::Follow.index(),
+            SquadIntent::Disperse => MacroIntent::Forage.index(),
+            SquadIntent::Migrate => MACRO_INTENT_COUNT, // the plain-steps slot
+        }
+    }
+}
+
+/// Which ledger slot one concrete action books itself into, if any.
+///
+/// Macro-intent actions book into their intent's slot; plain steps book into
+/// the trailing slot; anything else (crafting, ritual, odd ids) books nowhere.
+#[inline]
+pub(crate) fn ledger_slot_of_action(action: usize) -> Option<usize> {
+    if let Some(intent) = MacroIntent::of_action(action) {
+        return Some(intent.index());
+    }
+    if action <= 7 {
+        return Some(MACRO_INTENT_COUNT);
+    }
+    None
 }
 
 /// Snapshot of the squad at an epoch boundary; the delta between two
@@ -464,10 +519,40 @@ mod tests {
     }
 
     #[test]
+    fn ledger_slots_match_the_dispatched_intents() {
+        assert_eq!(SquadIntent::Gather.ledger_slot(), MacroIntent::Follow.index());
+        assert_eq!(SquadIntent::Disperse.ledger_slot(), MacroIntent::Forage.index());
+        assert_eq!(SquadIntent::Migrate.ledger_slot(), MACRO_INTENT_COUNT);
+        // The dispatched intent's slot is exactly what the old obedience
+        // counter would have counted.
+        assert_eq!(ledger_slot_of_action(10), Some(MacroIntent::Follow.index()));
+        assert_eq!(ledger_slot_of_action(8), Some(MacroIntent::Forage.index()));
+        assert_eq!(ledger_slot_of_action(3), Some(MACRO_INTENT_COUNT));
+        assert_eq!(ledger_slot_of_action(600), None);
+    }
+
+    #[test]
     fn signature_is_stable_under_permutation() {
         let a = squad_signature(&[3, 1, 4, 1, 5]);
         let b = squad_signature(&[5, 1, 4, 3, 1]);
         assert_eq!(a, b);
         assert_ne!(a, squad_signature(&[3, 1, 4, 1, 6]));
+    }
+
+    #[test]
+    fn intent_names_and_bubbles_are_wire_stable() {
+        // The wire contract: lowercase names a client panels and badges with.
+        // Never rename these — old saves and old clients read them verbatim.
+        assert_eq!(SquadIntent::Gather.name(), "gather");
+        assert_eq!(SquadIntent::Disperse.name(), "disperse");
+        assert_eq!(SquadIntent::Migrate.name(), "migrate");
+        // The bubble voice: gerund phrases, none of them a need thought —
+        // dispatching must never fight `think`'s urgent-need suppression.
+        assert_eq!(SquadIntent::Gather.bubble(), "gathering with the band");
+        assert_eq!(SquadIntent::Disperse.bubble(), "scattering to forage");
+        assert_eq!(SquadIntent::Migrate.bubble(), "moving with the band");
+        for intent in SquadIntent::ALL {
+            assert!(!crate::organism::organism::is_need_thought(intent.bubble()));
+        }
     }
 }
