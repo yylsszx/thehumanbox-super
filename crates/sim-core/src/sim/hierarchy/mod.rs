@@ -44,6 +44,12 @@ use crate::hashing::FxHashMap;
 pub(crate) const MACRO_CHOICE_SCALE: f32 = 0.05;
 /// The dispatch nudge a squad intent adds to its aligned macro actions.
 pub(crate) const SQUAD_DISPATCH_BOOST: f32 = 0.04;
+/// The confidence a squad brain needs before its dispatch also gates the
+/// members' exploration pool. A band that has not yet learned whether its
+/// intent is any good keeps exploring everything; once the intent has proven
+/// itself, members probe mainly the actions that serve it. The same
+/// confidence that scales the reward shaping now also scales the gate.
+pub(crate) const GATE_CONFIDENCE_MIN: f32 = 0.20;
 
 /// Everything the hierarchy keeps between ticks. Saved with the world.
 #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -232,6 +238,32 @@ impl crate::organism::organism::Organism {
             }
         }
         boost
+    }
+
+    /// Whether the dispatched squad intent gates this concrete action out of
+    /// this member's *exploration* pool right now. Three conditions, all
+    /// required:
+    ///
+    /// * the intent is in force (`squad_intent_until`);
+    /// * the band's brain has earned some confidence in it (`<
+    ///   GATE_CONFIDENCE_MIN` leaves the pool whole — a fresh or unproven
+    ///   dispatch must not narrow what experimenting means; the same
+    ///   confidence that scales the reward shaping scales the gate);
+    /// * no survival need is urgent — a starving, parched or hurt member
+    ///   keeps the whole pool. The thresholds mirror the tick's own
+    ///   `needs_ok` / recovery checks, so the gate opens and closes with the
+    ///   same judgements the choice code makes.
+    ///
+    /// This narrows where epsilon-probing looks, on top of the exploitation
+    /// bias in [`Self::hierarchy_choice_boost`]; it never picks an action
+    /// itself — the bottom layer still chooses from whatever pool remains.
+    pub(crate) fn squad_gate_blocks(&self, action: usize, tick: u64) -> bool {
+        tick < self.squad_intent_until
+            && self.squad_confidence >= GATE_CONFIDENCE_MIN
+            && self.energy > 0.50
+            && self.hydration > 0.62
+            && self.health > 0.48
+            && !intent_served(self.squad_intent, action)
     }
 }
 

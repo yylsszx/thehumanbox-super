@@ -488,3 +488,84 @@ fn dispatch_thinks_the_intent_bubble() {
     }
     assert!(bubbled > 0, "the forced cluster must dispatch a bubble");
 }
+
+#[test]
+fn the_exploration_gate_tracks_the_dispatched_intent() {
+    let mut sim = Simulation::new(0x60D5);
+    let idx = sim.organisms.iter().position(|o| o.alive).unwrap();
+    let tick = 5_000;
+    {
+        let o = &mut sim.organisms[idx];
+        o.energy = 0.9;
+        o.hydration = 0.9;
+        o.health = 0.95;
+        o.squad_confidence = 0.6;
+        o.squad_intent_until = 10_000;
+    }
+    let mut serves = |intent: SquadIntent, action: usize| {
+        sim.organisms[idx].squad_intent = intent;
+        !sim.organisms[idx].squad_gate_blocks(action, tick)
+    };
+    // Gather gates everything but Follow actions; Disperse, everything but
+    // Forage; Migrate, everything but plain steps.
+    assert!(serves(SquadIntent::Gather, 10));
+    assert!(!serves(SquadIntent::Gather, 8));
+    assert!(!serves(SquadIntent::Gather, 9));
+    assert!(serves(SquadIntent::Disperse, 8));
+    assert!(!serves(SquadIntent::Disperse, 10));
+    assert!(serves(SquadIntent::Migrate, 3));
+    assert!(!serves(SquadIntent::Migrate, 8));
+    // Work actions are gated out by every intent.
+    assert!(!serves(SquadIntent::Gather, 24));
+    assert!(!serves(SquadIntent::Migrate, 24));
+}
+
+#[test]
+fn urgent_needs_keep_the_exploration_pool_whole() {
+    let mut sim = Simulation::new(0x60D5);
+    let idx = sim.organisms.iter().position(|o| o.alive).unwrap();
+    let tick = 5_000;
+    {
+        let o = &mut sim.organisms[idx];
+        o.squad_intent = SquadIntent::Migrate;
+        o.squad_intent_until = 10_000;
+        o.squad_confidence = 0.6;
+        o.hydration = 0.9;
+        o.health = 0.95;
+        o.energy = 0.9;
+    }
+    assert!(
+        sim.organisms[idx].squad_gate_blocks(8, tick),
+        "a well-fed marcher under a confident dispatch has eating gated out"
+    );
+    // A fresh or unproven dispatch must not narrow exploration: low
+    // confidence leaves the whole pool open, exactly like the shaping
+    // scale that grows with the same confidence.
+    sim.organisms[idx].squad_confidence = 0.19;
+    assert!(
+        !sim.organisms[idx].squad_gate_blocks(8, tick),
+        "an unproven dispatch must not gate exploration"
+    );
+    sim.organisms[idx].squad_confidence = 0.6;
+    // Starving, parched and hurt members keep the whole pool: the middle
+    // layer shapes experimenting, never survival.
+    for (field, value) in [("energy", 0.45), ("hydration", 0.55), ("health", 0.40)] {
+        let o = &mut sim.organisms[idx];
+        o.energy = 0.9;
+        o.hydration = 0.9;
+        o.health = 0.95;
+        match field {
+            "energy" => o.energy = value,
+            "hydration" => o.hydration = value,
+            _ => o.health = value,
+        }
+        assert!(
+            !o.squad_gate_blocks(8, tick),
+            "gate must open when {field} is urgent"
+        );
+    }
+    // And once the dispatch expires, the gate is simply gone.
+    sim.organisms[idx].energy = 0.9;
+    sim.organisms[idx].squad_intent_until = tick;
+    assert!(!sim.organisms[idx].squad_gate_blocks(8, tick));
+}

@@ -1330,6 +1330,20 @@ impl Organism {
             } else {
                 decision_pool
             };
+            // The band's dispatch gates what experimenting means, not just
+            // what exploiting pays. While a squad intent is in force and no
+            // need is urgent, a member probes the actions that serve the
+            // intent instead of the whole pool; an empty gate (or no intent,
+            // or urgent needs) falls back to the full pool, so the middle
+            // layer may shape exploration but can never trap anyone in it.
+            // The player's own directive below still outranks the squad.
+            let squad_gate: Vec<usize> = pool
+                .iter()
+                .copied()
+                .filter(|&a| !self.squad_gate_blocks(a, tick))
+                .collect();
+            let squad_base: &[usize] = if squad_gate.is_empty() { pool } else { &squad_gate };
+
             // Guidance should shape experimentation as well as exploitation.
             // Previously epsilon exploration ignored the player's strategy,
             // making guided lineages look unresponsive exactly while they
@@ -1342,7 +1356,11 @@ impl Organism {
                     .filter(|&action| directive.is_some_and(|d| d.aligns(action)))
                     .collect()
             };
-            let guided_pool: &[usize] = if directed.is_empty() { pool } else { &directed };
+            let guided_pool: &[usize] = if directed.is_empty() {
+                squad_base
+            } else {
+                &directed
+            };
 
             // Curious organisms prefer choices they have not tried in this
             // situation. The fallback stays seeded and random, so worlds

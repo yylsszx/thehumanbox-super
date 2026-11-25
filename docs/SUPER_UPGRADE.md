@@ -99,8 +99,8 @@ per organism); old saves load with defaults and re-learn.
         only — done in round 3
   - [x] expose squad intents and tribe postures on the wire frame / UI
         (thought bubbles, tribe cards, a "posture" badge) — done in round 4
-  - [ ] macro-intent gating: let the dispatched intent filter the
-        exploration pool, not just bias exploitation
+  - [x] macro-intent gating: let the dispatched intent filter the
+        exploration pool, not just bias exploitation — done in round 5
   - [ ] inherit linear Q weights to children (currently re-learned)
   - [ ] tune epoch lengths and shaping scales against `headless` sweeps
 
@@ -174,3 +174,31 @@ per organism); old saves load with defaults and re-learn.
     "research") are lowercase, stable, and pinned by tests.
   - No new save fields (the payloads read runtime + persisted state as it
     is); 5 new tests (35 hierarchy total); fmt + clippy clean.
+
+- **Round 5** — the dispatched intent now gates the exploration pool itself,
+  not just the exploitation bias: when a squad's intent is in force, a
+  member's epsilon-probing looks first at the actions that serve the band
+  instead of the whole action space.
+  - **The gate** (`Organism::squad_gate_blocks`, applied inside
+    `choose_action`'s exploration branch, next to the existing player-
+    directive filter): with a confident dispatch in force and no urgent
+    need, the pool shrinks to `intent_served` actions — Gather → Follow
+    moves, Disperse → Forage moves, Migrate → plain steps — reusing the
+    exact rule the obedience ledger books with, so probing, booking and
+    payback always agree. The bottom layer still chooses; the middle layer
+    only narrows where experimenting looks. The player's own directive
+    still outranks the band.
+  - **Three releases, not a hard cage**: an empty gate (or no intent)
+    falls back to the full pool; starving, parched or hurt members keep
+    everything (the thresholds mirror the tick's own `needs_ok` /
+    recovery checks); and — learned from the first cut breaking a 900-tick
+    territory test — a fresh or unproven dispatch leaves the pool whole:
+    the gate needs the band brain's confidence ≥ 0.20
+    (`GATE_CONFIDENCE_MIN`), the same confidence that scales the reward
+    shaping. Unproven intents get explored; proven ones get executed.
+  - No save-format change (`squad_confidence` is already runtime state);
+    2 new tests (37 hierarchy total): the full gate matrix per intent, and
+    the urgency / low-confidence releases. The gate-flavoured world shifts
+    one long-range aggregate threshold by a hair (28 vs 30 claimed tiles),
+    resolved by the confidence gate itself rather than by loosening the
+    test. Full suite green (1383), clippy + fmt clean.
