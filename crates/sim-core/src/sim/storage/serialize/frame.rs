@@ -420,6 +420,15 @@ impl Simulation {
             );
             // What each tribe's people are working at, so its card can say what it is doing (read only).
             obj.insert("tribe_work".to_string(), lineage_work_payload(self));
+            // What each tribe's brain is broadcasting, so its card can badge the
+            // posture (read only). Changes only at tribe epochs, so the cold
+            // snapshot cadence is plenty for it.
+            obj.insert("tribe_posture".to_string(), tribe_posture_payload(self));
+            // What each squad brain currently dispatches, so the client can
+            // badge members and draw the squad panel (read only). Changes only
+            // at squad epochs; the members' own thought bubbles ride the hot
+            // thought delta, this is the structured companion.
+            obj.insert("squad_intents".to_string(), squad_intents_payload(self));
             // Routes are small and caravans visibly move every tick, so they
             // belong in hot/delta frames rather than the once-per-cold-snapshot
             // economy payload. The private dispatch_state used for delayed

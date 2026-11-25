@@ -18,6 +18,8 @@ mod basics;
 mod discoveries;
 mod helpers;
 mod inner;
+#[cfg(test)]
+pub(crate) use inner::is_need_thought;
 mod json;
 mod learning;
 mod mood;

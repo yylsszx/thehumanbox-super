@@ -114,3 +114,162 @@ pub(super) fn lineage_strategy_history_payload(sim: &Simulation) -> serde_json::
     )
     .unwrap()
 }
+
+/// Each tribe's broadcast posture, for the tribe card's badge: `{lineage:
+/// {posture, since, epochs, war_epochs, attack_mult}}`. The `attack_mult`
+/// is the war-weariness-faded weight the posture actually broadcasts (1.0
+/// outside `War`), rounded to two decimals. Sorted by lineage id; read only.
+pub(super) fn tribe_posture_payload(sim: &Simulation) -> serde_json::Value {
+    let mut postures: std::collections::BTreeMap<String, serde_json::Value> =
+        std::collections::BTreeMap::new();
+    for (lineage, brain) in &sim.hierarchy.tribes {
+        let round2 = |v: f32| (f64::from(v) * 100.0).round() / 100.0;
+        let attack_mult = if brain.action == crate::sim::hierarchy::TribeAction::War {
+            crate::sim::hierarchy::tribe::effective_attack_mult(brain.war_epochs)
+        } else {
+            1.0
+        };
+        postures.insert(
+            lineage.clone(),
+            json!({
+                "posture": brain.action.name(),
+                "since": brain.action_started,
+                "epochs": brain.epochs,
+                "war_epochs": brain.war_epochs,
+                "attack_mult": round2(attack_mult),
+            }),
+        );
+    }
+    serde_json::Value::Object(postures.into_iter().collect())
+}
+
+/// Each lineage's squads and the intent each currently dispatches, for the
+/// squad panel and per-organism badges: `{lineage: [{id, intent, members,
+/// ids, confidence, target}]}`. `ids` carries the alive members' organism
+/// ids so the client can badge them without a membership join; dead members
+/// (stale between rebuilds) are skipped. Squads sorted by id within a
+/// lineage, lineages sorted by id; read only.
+pub(super) fn squad_intents_payload(sim: &Simulation) -> serde_json::Value {
+    let mut squads: std::collections::BTreeMap<String, Vec<serde_json::Value>> =
+        std::collections::BTreeMap::new();
+    for (lineage, brains) in &sim.hierarchy.squads {
+        let mut listed: Vec<serde_json::Value> = Vec::new();
+        for brain in brains.iter() {
+            let mut ids: Vec<String> = Vec::with_capacity(brain.members.len());
+            for &m in &brain.members {
+                let Some(o) = sim.organisms.get(m) else {
+                    continue;
+                };
+                if o.alive {
+                    ids.push(o.id.to_string());
+                }
+            }
+            if ids.is_empty() {
+                continue;
+            }
+            let round2 = |v: f32| (f64::from(v) * 100.0).round() / 100.0;
+            listed.push(json!({
+                "id": brain.id,
+                "intent": brain.intent.name(),
+                "members": ids.len(),
+                "ids": ids,
+                "confidence": round2(brain.confidence),
+                "target": [brain.target.0, brain.target.1],
+            }));
+        }
+        listed.sort_by_key(|s| s["id"].as_u64().unwrap_or(0));
+        squads.insert(lineage.clone(), listed);
+    }
+    serde_json::to_value(squads).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sim::hierarchy::{SquadBrain, SquadIntent, TribeAction, TribeBrain};
+
+    #[test]
+    fn tribe_posture_lists_lineages_sorted_with_faded_attack_weight() {
+        let mut sim = Simulation::new(0x5CAD);
+        let war = TribeBrain {
+            action: TribeAction::War,
+            action_started: 7,
+            epochs: 9,
+            war_epochs: 4,
+            ..Default::default()
+        };
+        let ally = TribeBrain {
+            action: TribeAction::Ally,
+            ..Default::default()
+        };
+        sim.hierarchy.tribes.insert("line-z".to_string(), war);
+        sim.hierarchy.tribes.insert("line-a".to_string(), ally);
+
+        let payload = tribe_posture_payload(&sim);
+        let keys: Vec<&String> = payload.as_object().unwrap().keys().collect();
+        assert_eq!(keys, ["line-a", "line-z"], "sorted by lineage id");
+        assert_eq!(payload["line-z"]["posture"], "war");
+        assert_eq!(payload["line-z"]["since"], 7);
+        assert_eq!(payload["line-z"]["epochs"], 9);
+        assert_eq!(payload["line-z"]["war_epochs"], 4);
+        let mult = payload["line-z"]["attack_mult"].as_f64().unwrap();
+        assert!(
+            mult > 1.0 && mult < 1.6,
+            "weariness must fade the broadcast below the fresh 1.6: {mult}"
+        );
+        assert_eq!(payload["line-a"]["posture"], "ally");
+        assert_eq!(payload["line-a"]["attack_mult"], 1.0, "no war, no boost");
+    }
+
+    #[test]
+    fn squad_intents_list_alive_member_ids_sorted_by_squad_id() {
+        let mut sim = Simulation::new(0x60D5);
+        let lineage = sim.organisms[0].lineage_id.to_string();
+        let mut members = Vec::new();
+        for (i, o) in sim.organisms.iter().enumerate() {
+            if o.alive {
+                members.push(i);
+            }
+            if members.len() == 3 {
+                break;
+            }
+        }
+        assert_eq!(members.len(), 3, "a fresh world has people");
+        sim.organisms[members[2]].alive = false;
+        let expected: Vec<String> = [members[0], members[1]]
+            .iter()
+            .map(|&i| sim.organisms[i].id.to_string())
+            .collect();
+
+        let band = SquadBrain {
+            id: 11,
+            intent: SquadIntent::Migrate,
+            confidence: 0.5,
+            target: (12, 34),
+            members,
+            ..Default::default()
+        };
+        let empty = SquadBrain {
+            id: 3,
+            members: Vec::new(), // no alive members → not listed
+            ..Default::default()
+        };
+        sim.hierarchy.squads.insert(lineage.clone(), vec![band, empty]);
+
+        let payload = squad_intents_payload(&sim);
+        let arr = payload[&lineage].as_array().unwrap();
+        assert_eq!(arr.len(), 1, "a squad with no alive members is not listed");
+        assert_eq!(arr[0]["id"], 11, "squads sorted by id within the lineage");
+        assert_eq!(arr[0]["intent"], "migrate");
+        assert_eq!(arr[0]["members"], 2, "the dead member is skipped");
+        let ids: Vec<&str> = arr[0]["ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(ids, expected);
+        assert_eq!(arr[0]["confidence"], 0.5);
+        assert_eq!(arr[0]["target"], serde_json::json!([12, 34]));
+    }
+}

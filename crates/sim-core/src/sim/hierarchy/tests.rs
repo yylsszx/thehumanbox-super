@@ -461,3 +461,30 @@ fn migrate_payback_credits_plain_steps() {
     let q = sim.organisms[idx].q_table.get(state).unwrap().get_q(3);
     assert!(q > 0.0, "walking the march should be credited in the table: {q}");
 }
+
+#[test]
+fn dispatch_thinks_the_intent_bubble() {
+    let mut sim = Simulation::new(0x60D5);
+    force_cluster(&mut sim, 6);
+    sim.tick_count = squad::SQUAD_REBUILD_EVERY;
+    sim.hierarchy_rebuild_squads();
+
+    let mut bubbled = 0;
+    for brains in sim.hierarchy.squads.values() {
+        for brain in brains {
+            for &m in &brain.members {
+                let o = &sim.organisms[m];
+                if !o.alive {
+                    continue;
+                }
+                // The bubble carries the dispatched intent in the shared
+                // thought voice, and the delta builder will ship it (dirty).
+                assert_eq!(o.thought, brain.intent.bubble());
+                assert!(o.thought_dirty, "the bubble must reach the next delta");
+                assert!(!crate::organism::organism::is_need_thought(&o.thought));
+                bubbled += 1;
+            }
+        }
+    }
+    assert!(bubbled > 0, "the forced cluster must dispatch a bubble");
+}

@@ -97,8 +97,8 @@ per organism); old saves load with defaults and re-learn.
   - [x] tribe postures that actually steer diplomacy (attitude drift for
         Ally, war-weariness coupling for War) instead of reward-shaping
         only — done in round 3
-  - [ ] expose squad intents and tribe postures on the wire frame / UI
-        (thought bubbles, tribe cards, a "posture" badge)
+  - [x] expose squad intents and tribe postures on the wire frame / UI
+        (thought bubbles, tribe cards, a "posture" badge) — done in round 4
   - [ ] macro-intent gating: let the dispatched intent filter the
         exploration pool, not just bias exploitation
   - [ ] inherit linear Q weights to children (currently re-learned)
@@ -147,3 +147,30 @@ per organism); old saves load with defaults and re-learn.
   - Save format: one new `#[serde(default)]` field (`war_epochs`); old
     saves load and re-learn. 5 new tests (32 hierarchy total); fmt + clippy
     clean.
+- **Round 4** — the hierarchy is on the wire: clients can now *see* what the
+  middle and top layers are thinking, with zero simulation behaviour
+  changed and zero save-format changed.
+  - **Thought bubbles**: both dispatch sites (rebuild and epoch) now run the
+    dispatched intent through `Organism::think` — "gathering with the band",
+    "scattering to forage", "moving with the band" — so members visibly
+    carry their band's intent in the existing thought channel. `think`'s own
+    semantics do the right thing for free: urgent needs keep their bubble
+    (`is_need_thought`, now crate-test-visible, pins the contract that the
+    three bubble phrases never collide with the need list), re-choosing the
+    same intent dedupes, and `thought_dirty` ships it on the next hot delta.
+  - **Tribe posture badge**: a new cold-frame payload `tribe_posture` maps
+    lineage → `{posture, since, epochs, war_epochs, attack_mult}` straight
+    from each `TribeBrain`; `attack_mult` is the war-weariness-faded weight
+    the posture actually broadcasts (`effective_attack_mult`), 1.0 outside
+    `War` — the tribe card can badge and fade it.
+  - **Squad panel**: a companion cold-frame payload `squad_intents` maps
+    lineage → `[{id, intent, members, ids, confidence, target}]` from each
+    `SquadBrain`; `ids` carries alive members' organism ids so the client
+    badges members without a join, dead members (stale between rebuilds)
+    are skipped, and squads with nobody left are not listed. Both payloads
+    are sorted (lineage ids, squad ids) and read-only.
+  - Wire names are a contract: `SquadIntent::name` ("gather" / "disperse" /
+    "migrate") and `TribeAction::name` ("war" / "ally" / "missionary" /
+    "research") are lowercase, stable, and pinned by tests.
+  - No new save fields (the payloads read runtime + persisted state as it
+    is); 5 new tests (35 hierarchy total); fmt + clippy clean.

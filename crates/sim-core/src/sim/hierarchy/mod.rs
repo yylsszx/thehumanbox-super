@@ -362,6 +362,7 @@ impl crate::sim::simulation::Simulation {
         self.hierarchy.squads = fresh;
 
         // Dispatch (or expire) the runtime squad fields on every organism.
+        let now = self.tick_count;
         for brains in self.hierarchy.squads.values() {
             for brain in brains {
                 let stats = squad::squad_stats_of(self, &brain.members);
@@ -373,6 +374,11 @@ impl crate::sim::simulation::Simulation {
                     o.squad_centroid = stats.centroid;
                     o.squad_target = brain.target;
                     o.squad_confidence = brain.confidence;
+                    // The thought bubble: what the band is up to, in the
+                    // shared thought voice. `think` dedupes, so a rebuilt
+                    // band that keeps its intent does not spam history, and
+                    // an urgent need keeps its bubble until it eases.
+                    o.think(brain.intent.bubble(), now);
                 }
             }
         }
@@ -488,6 +494,9 @@ impl crate::sim::simulation::Simulation {
                     o.squad_centroid = brain.epoch_stats.centroid;
                     o.squad_target = brain.target;
                     o.squad_confidence = brain.confidence;
+                    // The bubble rides along with the dispatch: a fresh
+                    // intent reads as a fresh thought; a re-chosen one dedupes.
+                    o.think(brain.intent.bubble(), tick);
                 }
             }
             self.hierarchy.squads.insert(lineage, brains);

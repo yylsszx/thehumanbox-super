@@ -52,6 +52,19 @@ impl TribeAction {
         TribeAction::Missionary,
         TribeAction::Research,
     ];
+
+    /// The wire name of this posture: what the frame's `tribe_posture`
+    /// payload puts on the tribe card's badge. Lowercase, stable, never
+    /// renamed — old clients keep rendering old saves.
+    #[inline]
+    pub fn name(self) -> &'static str {
+        match self {
+            TribeAction::War => "war",
+            TribeAction::Ally => "ally",
+            TribeAction::Missionary => "missionary",
+            TribeAction::Research => "research",
+        }
+    }
 }
 
 /// The tribe-level snapshot an epoch is judged against.
@@ -290,6 +303,16 @@ pub(crate) fn drift_attitudes_for_posture(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn posture_names_are_wire_stable() {
+        // The tribe card badge reads these verbatim from the frame payload;
+        // never rename them — old saves and old clients depend on the words.
+        assert_eq!(TribeAction::War.name(), "war");
+        assert_eq!(TribeAction::Ally.name(), "ally");
+        assert_eq!(TribeAction::Missionary.name(), "missionary");
+        assert_eq!(TribeAction::Research.name(), "research");
+    }
 
     #[test]
     fn tribe_q_learning_pulls_values_toward_reward() {

@@ -57,6 +57,30 @@ impl SquadIntent {
 
     pub const ALL: [SquadIntent; 3] = [SquadIntent::Gather, SquadIntent::Disperse, SquadIntent::Migrate];
 
+    /// The wire name of this intent: what the frame payload and the client's
+    /// squad panel / thought bubble read. Lowercase, stable, never renamed.
+    #[inline]
+    pub fn name(self) -> &'static str {
+        match self {
+            SquadIntent::Gather => "gather",
+            SquadIntent::Disperse => "disperse",
+            SquadIntent::Migrate => "migrate",
+        }
+    }
+
+    /// The thought bubble a member thinks when the intent reaches it, in the
+    /// same voice as every other thought ("moving to water", "observing").
+    /// The dispatch site runs it through `Organism::think`, so urgent needs
+    /// keep the bubble and re-choosing the same intent does not spam history.
+    #[inline]
+    pub fn bubble(self) -> &'static str {
+        match self {
+            SquadIntent::Gather => "gathering with the band",
+            SquadIntent::Disperse => "scattering to forage",
+            SquadIntent::Migrate => "moving with the band",
+        }
+    }
+
     /// The macro intent this squad intent nudges members toward, if any.
     /// `Migrate` works through plain steps, which carry no macro intent.
     #[inline]
@@ -513,5 +537,22 @@ mod tests {
         let b = squad_signature(&[5, 1, 4, 3, 1]);
         assert_eq!(a, b);
         assert_ne!(a, squad_signature(&[3, 1, 4, 1, 6]));
+    }
+
+    #[test]
+    fn intent_names_and_bubbles_are_wire_stable() {
+        // The wire contract: lowercase names a client panels and badges with.
+        // Never rename these — old saves and old clients read them verbatim.
+        assert_eq!(SquadIntent::Gather.name(), "gather");
+        assert_eq!(SquadIntent::Disperse.name(), "disperse");
+        assert_eq!(SquadIntent::Migrate.name(), "migrate");
+        // The bubble voice: gerund phrases, none of them a need thought —
+        // dispatching must never fight `think`'s urgent-need suppression.
+        assert_eq!(SquadIntent::Gather.bubble(), "gathering with the band");
+        assert_eq!(SquadIntent::Disperse.bubble(), "scattering to forage");
+        assert_eq!(SquadIntent::Migrate.bubble(), "moving with the band");
+        for intent in SquadIntent::ALL {
+            assert!(!crate::organism::organism::is_need_thought(intent.bubble()));
+        }
     }
 }
