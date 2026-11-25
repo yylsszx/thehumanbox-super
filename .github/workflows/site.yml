@@ -1,0 +1,195 @@
+# Deploys the playable site of this fork, straight from main.
+#
+# Two targets, one wasm build:
+#   * GitHub Pages  — https://yylsszx.github.io/thehumanbox-super/
+#     (built with VITE_BASE=/thehumanbox-super/; Pages must be enabled
+#     with build_type "workflow", which the setup API call did once)
+#   * Cloudflare Pages — https://thehumanbox-super.pages.dev
+#     (root base, plus the /ingest analytics function from apps/web/functions)
+#     Needs the CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID repo secrets;
+#     until they exist the job reports "skipped" and everything else still
+#     ships.
+#
+# The wasm recipe is the one the main pipeline already proves green
+# (scripts/build-wasm.sh + scripts/build-wasm-threads.sh); the frontend
+# recipe is build-frontend's. Public-repo CI minutes are free, so every
+# push to main redeploys; Swatinem's target cache keeps rebuilds quick.
+name: Deploy site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-site
+  cancel-in-progress: true
+
+jobs:
+  build-wasm:
+    name: Build wasm sim-core
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_NET_RETRY: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      # The threaded build rebuilds std with atomics, so it needs this
+      # nightly (same pin as the main pipeline).
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: nightly-2025-11-15
+          targets: wasm32-unknown-unknown
+          components: rust-src
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+          key: site
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+      - name: Build wasm sim-core (single)
+        run: scripts/build-wasm.sh
+      - name: Build wasm sim-core (threads)
+        run: scripts/build-wasm-threads.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: site-wasm
+          path: apps/web/src/wasm
+          retention-days: 1
+
+  # The secrets context cannot be tested in a job-level `if` reliably, so a
+  # tiny job maps it to an output the deploy jobs can branch on.
+  cf-ready:
+    name: Cloudflare secrets present?
+    runs-on: ubuntu-24.04
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        env:
+          CF_API: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$CF_API" ] && [ -n "$CF_ACCOUNT" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are not set;" \
+                 "the pages.dev deploy is skipped (GitHub Pages still ships)."
+          fi
+
+  github-pages:
+    name: Deploy to GitHub Pages
+    needs: build-wasm
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Stamp this build
+        id: stamp
+        run: echo "ts=$(date -u +%s)" >> "$GITHUB_OUTPUT"
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: pnpm install
+        working-directory: apps/web
+        run: pnpm install --frozen-lockfile
+      - name: Download wasm sim-core
+        uses: actions/download-artifact@v8
+        with:
+          name: site-wasm
+          path: apps/web/src/wasm
+      - name: pnpm run build
+        working-directory: apps/web
+        env:
+          # The project site lives under /thehumanbox-super/, so every
+          # asset URL is rebased onto it (see vite.config.ts).
+          VITE_BASE: /thehumanbox-super/
+          VITE_GIT_SHA: ${{ github.sha }}
+          VITE_BUILD_TS: ${{ steps.stamp.outputs.ts }}
+        run: pnpm run build
+      # Vite rebases the URLs index.html uses, but not the contents of the
+      # copied public/ files: the PWA manifest still points at the root, so
+      # its ids and icon paths are rewritten for the sub-path by hand.
+      - name: Rebase site.webmanifest onto the sub-path
+        working-directory: apps/web/dist
+        run: |
+          sed -i 's#"id": "/"#"id": "/thehumanbox-super/"#;
+                  s#"start_url": "/"#"start_url": "/thehumanbox-super/"#;
+                  s#"scope": "/"#"scope": "/thehumanbox-super/"#;
+                  s#"src": "/#"src": "#g' site.webmanifest
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/web/dist
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  cloudflare-pages:
+    name: Deploy to Cloudflare Pages
+    needs: [build-wasm, cf-ready]
+    if: needs.cf-ready.outputs.ready == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Stamp this build
+        id: stamp
+        run: echo "ts=$(date -u +%s)" >> "$GITHUB_OUTPUT"
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: pnpm install
+        working-directory: apps/web
+        run: pnpm install --frozen-lockfile
+      - name: Download wasm sim-core
+        uses: actions/download-artifact@v8
+        with:
+          name: site-wasm
+          path: apps/web/src/wasm
+      # Root base (the pages.dev host serves at /), so no VITE_BASE here.
+      - name: pnpm run build
+        working-directory: apps/web
+        env:
+          VITE_GIT_SHA: ${{ github.sha }}
+          VITE_BUILD_TS: ${{ steps.stamp.outputs.ts }}
+        run: pnpm run build
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/web
+          # apps/web/functions (the /ingest proxy) sits next to dist, so
+          # wrangler uploads it with the bundle.
+          command: pages deploy dist --project-name=thehumanbox-super --branch=main

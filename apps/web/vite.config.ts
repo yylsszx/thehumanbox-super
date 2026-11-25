@@ -175,7 +175,12 @@ export default defineConfig({
   // there. Desktop loads index.html over file://, where absolute paths
   // resolve to filesystem root — so the desktop build flips to relative
   // via VITE_DESKTOP=1 (set by desktop/package.json's build:renderer).
-  base: process.env.VITE_DESKTOP === '1' ? './' : '/',
+  // A sub-path host (GitHub Pages serves this fork under
+  // /thehumanbox-super/) overrides the base via VITE_BASE, set by the
+  // deploy workflow; root and desktop builds leave it unset.
+  base:
+    process.env.VITE_BASE ??
+    (process.env.VITE_DESKTOP === '1' ? './' : '/'),
 
   build: {
     chunkSizeWarningLimit: 400,
