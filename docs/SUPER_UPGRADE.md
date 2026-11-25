@@ -101,7 +101,8 @@ per organism); old saves load with defaults and re-learn.
         (thought bubbles, tribe cards, a "posture" badge) — done in round 4
   - [x] macro-intent gating: let the dispatched intent filter the
         exploration pool, not just bias exploitation — done in round 5
-  - [ ] inherit linear Q weights to children (currently re-learned)
+  - [x] inherit linear Q weights to children (currently re-learned) — done
+        in round 6
   - [ ] tune epoch lengths and shaping scales against `headless` sweeps
 
 - **Round 2** — deeper credit assignment. The obedience counter became a
@@ -202,3 +203,24 @@ per organism); old saves load with defaults and re-learn.
     one long-range aggregate threshold by a hair (28 vs 30 claimed tiles),
     resolved by the confidence gate itself rather than by loosening the
     test. Full suite green (1383), clippy + fmt clean.
+
+- **Round 6** — the bottom layer's linear macro-Q is now a birthright. A
+  child used to inherit its mother's tabular Q (with drift) and her
+  memories, vocabulary and lessons, but the linear macro-Q — everything her
+  line had ever learned about when foraging, drinking, fleeing, fighting or
+  following pays — was wiped to zeros at birth, so every child restarted
+  that layer from scratch and the lineage's macro-intuitions never
+  compounded across generations.
+  - `try_reproduce` now copies the mother's `LinearQ.w` into the child with
+    the same gentle drift the tabular Q gets (20% of weights nudged by up
+    to ±0.03): most weights pass through untouched, a few drift, so the
+    inherited instincts can still move on in a child instead of freezing.
+  - The seeded-reproduction fixture's captured expectations were
+    recaptured (the inherit block consumes the rng after the tabular copy,
+    before the attribute rolls, as its comment anticipates); a new test
+    pins the contract — same shape, every weight within ±0.03 of the
+    mother's, at least three quarters identical, at least one drifted, and
+    none fallen back to a fresh zero.
+  - No save-format change. Full suite green (1384, all 133 long-range
+    integration tests re-run against the shifted birth rng), clippy + fmt
+    clean.

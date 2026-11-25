@@ -391,6 +391,25 @@ pub fn try_reproduce(
         child.q_table.insert(state.clone(), row);
     }
 
+    // The linear macro-Q inherits the same way the table does: the mother's
+    // learned macro-intuitions (which intents pay in which situations),
+    // with a little drift so a lineage's instincts can still move on in a
+    // child instead of being frozen forever. Without this a child threw
+    // away everything its line had ever learned about the five macro
+    // intents and started that layer from zero.
+    child.linear_q.w = organisms[org_idx]
+        .linear_q
+        .w
+        .iter()
+        .map(|&v| {
+            if rng.random::<f32>() < 0.20 {
+                v + rng.random_range(-0.03f32..0.03)
+            } else {
+                v
+            }
+        })
+        .collect();
+
     let mem_trait = child.traits.memory_strength;
     let mut food_sorted: Vec<((i32, i32), f32)> = organisms[org_idx]
         .food_memory
@@ -929,28 +948,88 @@ mod tests {
         ] {
             assert!((actual - expected).abs() < 1e-6);
         }
+        // Recaptured for the linear macro-Q inheritance: the child's
+        // attribute rolls consume the rng after the new inherit block.
         assert_eq!(
             attributes,
             [
                 "forager",
-                "freckled",
-                "headstrong",
+                "graceful",
+                "hollow-cheeked",
                 "iron-willed",
                 "learned",
-                "night-walker",
-                "secretive",
-                "sharp-featured",
-                "suspicious",
-                "talkative",
                 "tall",
-                "wiry",
             ]
         );
-        assert_eq!(rng.random::<u64>(), 14_977_164_611_009_984_470);
+        assert_eq!(rng.random::<u64>(), 8_817_375_155_180_534_141);
         assert_eq!(child.father_id.as_deref(), Some("father"));
         assert_eq!(child.parent_id, "mother");
         assert!(is_pending_birth(child));
         assert!(organisms[0].pregnant);
+    }
+
+    #[test]
+    fn children_inherit_the_mother_s_linear_macro_q() {
+        // Same fixture as the seeded-reproduction test, but the mother
+        // carries a learned macro-Q: the child must carry it onward (with
+        // the same gentle drift the tabular Q gets) instead of starting
+        // that layer from zero.
+        let mut rng = StdRng::seed_from_u64(7);
+        let mut mother = test_organism("mother", Sex::Female, true, &mut rng);
+        mother.age = 4_000;
+        mother.partner_id = Some("father".to_string());
+        for w in mother.linear_q.w.iter_mut() {
+            *w = 0.5;
+        }
+        let mut father = test_organism("father", Sex::Male, true, &mut rng);
+        father.age = 4_000;
+        let mut organisms = vec![mother, father];
+        let mut grid = WorldGrid::new(7);
+        grid.tiles.fill(Tile::Grass as i8);
+        grid.biome.fill(Biome::Grassland as u8);
+        grid.fertility.fill(0.75);
+        let mut events = VecDeque::new();
+        let lineages = lineage_population_slots(&organisms);
+        let ids = living_index(&organisms);
+        try_reproduce(
+            0,
+            &mut organisms,
+            &grid,
+            4_000,
+            &mut events,
+            &mut rng,
+            ReproductionPopulation {
+                slots_used: 80,
+                limit: 350,
+                lineage_counts: &lineages,
+                org_idx_by_id: &ids,
+            },
+        );
+        assert_eq!(organisms.len(), 3, "a child was conceived");
+        let (mother_w, child_w): (Vec<f32>, Vec<f32>) =
+            (organisms[0].linear_q.w.clone(), organisms[2].linear_q.w.clone());
+        assert_eq!(child_w.len(), mother_w.len(), "same shape as the mother's");
+        let mut identical = 0;
+        let mut drifted = 0;
+        for (c, m) in child_w.iter().zip(&mother_w) {
+            assert!(
+                (c - m).abs() <= 0.03 + 1e-6,
+                "weight drifted too far: child {c} vs mother {m}"
+            );
+            if (c - m).abs() < 1e-9 {
+                identical += 1;
+            } else {
+                drifted += 1;
+            }
+        }
+        // Most weights pass through untouched; the drift touches a few, so
+        // a lineage's macro-intuitions can still move on in a child.
+        assert!(identical >= child_w.len() * 3 / 4, "identical: {identical}");
+        assert!(drifted >= 1, "at least one weight should drift");
+        assert!(
+            child_w.iter().all(|&v| (v - 0.5).abs() <= 0.03 + 1e-6),
+            "no weight fell back to a fresh zero"
+        );
     }
 
     #[test]
