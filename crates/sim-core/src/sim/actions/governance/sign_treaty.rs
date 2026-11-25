@@ -78,9 +78,9 @@ mod tests {
             outcome: None,
             initial_a: 1,
             initial_d: 1,
-                routed_a: false,
-        routed_d: false,
-});
+            routed_a: false,
+            routed_d: false,
+        });
 
         let spatial = SpatialIndex::build(&sim.organisms, 10);
         let mut ctx = ActionCtx::new(&mut sim, 0, 100, 100, &spatial);

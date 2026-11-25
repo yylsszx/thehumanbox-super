@@ -105,6 +105,11 @@ impl Simulation {
             world_seed: self.world_seed,
             lineage_names: self.lineage_names.clone(),
             lineage_strategies: self.lineage_strategies.clone(),
+            hierarchy: crate::sim::hierarchy::HierarchyState {
+                squads: self.hierarchy.squads.clone(),
+                tribes: self.hierarchy.tribes.clone(),
+                next_squad_id: self.hierarchy.next_squad_id,
+            },
             lineage_strategy_objectives: self.lineage_strategy_objectives.clone(),
             lineage_strategy_history: self
                 .lineage_strategy_history

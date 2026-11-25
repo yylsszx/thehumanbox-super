@@ -14,6 +14,7 @@ pub mod world_events;
 
 pub mod agents;
 pub mod civ;
+pub mod hierarchy;
 pub mod tech;
 
 // Storage keeps its old paths (sim::persistence, sim::serialize).

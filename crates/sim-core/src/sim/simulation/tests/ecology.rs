@@ -194,7 +194,10 @@ fn the_ecology_engine_runs_deterministically_under_the_full_tick() {
         }
         let mut tiles = 0u64;
         for (i, &t) in sim.grid.tiles.iter().enumerate() {
-            tiles = tiles.wrapping_mul(31).wrapping_add(t as i64 as u64).wrapping_add(i as u64 % 7);
+            tiles = tiles
+                .wrapping_mul(31)
+                .wrapping_add(t as i64 as u64)
+                .wrapping_add(i as u64 % 7);
         }
         (animals, energy, tiles, sim.events.len())
     }
@@ -203,5 +206,3 @@ fn the_ecology_engine_runs_deterministically_under_the_full_tick() {
     // cooldown's horizon so the comparison stays about the pass itself.
     assert_eq!(fingerprint(0xEC4, 2_500), fingerprint(0xEC4, 2_500));
 }
-
-

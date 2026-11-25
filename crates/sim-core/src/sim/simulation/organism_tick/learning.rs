@@ -25,6 +25,7 @@ impl Simulation {
             terminal,
             night: f.night,
             animal_near: f.animal_near,
+            state_vector: self.organisms[idx].state_vector,
         });
 
         if self.organisms[idx].energy > 0.7 && self.organisms[idx].hydration > 0.7 {

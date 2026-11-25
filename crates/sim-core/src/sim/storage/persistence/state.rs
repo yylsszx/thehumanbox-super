@@ -212,6 +212,9 @@ pub struct SaveState {
     pub(crate) world_seed: u64,
     pub(super) lineage_names: HashMap<String, String>,
     pub(super) lineage_strategies: HashMap<String, (String, u64)>,
+    /// The multi-layer Q-learning hierarchy's brains (see `sim::hierarchy`).
+    #[serde(default)]
+    pub(super) hierarchy: crate::sim::hierarchy::HierarchyState,
     #[serde(default)]
     pub(super) lineage_strategy_objectives: HashMap<String, crate::sim::simulation::StrategyObjective>,
     #[serde(default)]

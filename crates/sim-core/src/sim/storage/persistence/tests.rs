@@ -29,8 +29,8 @@ fn saved_battle(id: &str) -> crate::sim::warfare::Battle {
         initial_a: 0,
         initial_d: 0,
         routed_a: false,
-    routed_d: false,
-}
+        routed_d: false,
+    }
 }
 
 #[test]

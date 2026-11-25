@@ -127,6 +127,8 @@ pub(crate) struct PendingLearn {
     terminal: bool,
     night: bool,
     animal_near: bool,
+    /// The hierarchy's vector state at decision time (bottom layer).
+    state_vector: crate::sim::hierarchy::StateVector,
 }
 
 const LOD_EVERY: u64 = 64;
@@ -542,13 +544,16 @@ impl Simulation {
     pub(super) fn learn_from_the_tick(&mut self, spatial: &SpatialIndex) {
         let pending = std::mem::take(&mut self.pending_learning);
         let sim = &*self;
+        let tick = self.tick_count;
+        // Each pending decision yields the tabular bootstrap and the
+        // next-state vector for the hierarchy's linear macro-intent Q.
         let best = crate::sim::par::map_with(
             pending.len(),
             || (Vec::with_capacity(32), Vec::with_capacity(32)),
             |(perception_buf, spatial_buf), k| {
                 let p = &pending[k];
                 if p.terminal {
-                    return 0.0;
+                    return (0.0, crate::sim::hierarchy::StateVector::default());
                 }
                 let org = &sim.organisms[p.idx];
                 let next = org.perceive_into(
@@ -559,7 +564,7 @@ impl Simulation {
                     spatial,
                     perception_buf,
                 );
-                org.q_table.get(&next).map_or(0.0, |row| {
+                let tabular = org.q_table.get(&next).map_or(0.0, |row| {
                     crate::sim::actions::best_next_q(
                         sim,
                         p.idx,
@@ -569,10 +574,15 @@ impl Simulation {
                         spatial_buf,
                         row,
                     )
-                })
+                });
+                // The next-state vector: same features, current body, no
+                // fresh threat scan (fear level stands in for proximity).
+                spatial.query_into(org.x as i32, org.y as i32, 8, spatial_buf);
+                let sv_next = org.compute_state_vector(&sim.organisms, spatial_buf, None, tick);
+                (tabular, sv_next)
             },
         );
-        for (p, best_next) in pending.into_iter().zip(best) {
+        for (p, (best_next, sv_next)) in pending.into_iter().zip(best) {
             self.organisms[p.idx].learn_from_best_next(
                 &p.perception,
                 p.action,
@@ -581,6 +591,17 @@ impl Simulation {
                 Some(p.succeeded),
                 p.terminal,
             );
+            // Bottom layer: the same temporal-difference signal also trains
+            // the linear macro-intent Q, which generalises across states the
+            // string table has never seen.
+            if !p.terminal {
+                if let Some(intent) = crate::sim::hierarchy::MacroIntent::of_action(p.action) {
+                    let bootstrap = 0.90 * self.organisms[p.idx].linear_q.best_next(sv_next);
+                    self.organisms[p.idx]
+                        .linear_q
+                        .update(intent, p.state_vector, p.reward + bootstrap, 0.06);
+                }
+            }
         }
     }
 }

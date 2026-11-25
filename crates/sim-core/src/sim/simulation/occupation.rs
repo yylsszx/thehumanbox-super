@@ -448,9 +448,12 @@ mod tests {
                 // all land (the first land tile in a scan is a coastline,
                 // and an annexation pressed there may not have three land
                 // tiles to its name).
-                let land = (0..7).flat_map(|dy| (0..7).map(move |dx| (dy, dx))).filter(|&(dy, dx)| {
-                    !matches!(sim.grid.get(x + dx - 3, y + dy - 3), Tile::Water | Tile::Void)
-                }).count();
+                let land = (0..7)
+                    .flat_map(|dy| (0..7).map(move |dx| (dy, dx)))
+                    .filter(|&(dy, dx)| {
+                        !matches!(sim.grid.get(x + dx - 3, y + dy - 3), Tile::Water | Tile::Void)
+                    })
+                    .count();
                 if land == 49 {
                     centre = (x, y);
                     break 'find;
@@ -553,7 +556,8 @@ mod tests {
             let (mut sim, lid, (cx, cy)) = sim_with_land_seed(seed);
             // An iron-age loser has armouries worth stripping; the victor
             // stands on the overrun ground, adult and empty-handed.
-            sim.lineage_eras.insert(lid.clone().into(), crate::sim::era::Era::Iron);
+            sim.lineage_eras
+                .insert(lid.clone().into(), crate::sim::era::Era::Iron);
             sim.organisms.truncate(16);
             for o in sim.organisms.iter_mut() {
                 o.alive = true;

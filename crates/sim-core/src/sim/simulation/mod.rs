@@ -151,6 +151,10 @@ pub struct Simulation {
     pub next_festival_id: u32,
     pub action_counts: HashMap<&'static str, u64>,
     pub decision_counts: HashMap<&'static str, u64>,
+    /// The bottom-up multi-layer Q-learning hierarchy: squad and tribe
+    /// brains plus their dispatch state (see `sim::hierarchy`). Saved with
+    /// the world.
+    pub hierarchy: crate::sim::hierarchy::HierarchyState,
     /// Times someone learned a skill by watching kin or a friend work. Runtime only, for reports.
     pub lessons_watched: u64,
     pub workshop_hits: HashMap<&'static str, (u64, u64)>,
@@ -374,6 +378,7 @@ impl Simulation {
             focus_points: Vec::new(),
             lineage_names: HashMap::default(),
             lineage_strategies: HashMap::default(),
+            hierarchy: crate::sim::hierarchy::HierarchyState::default(),
             lineage_strategy_objectives: HashMap::default(),
             lineage_strategy_history: VecDeque::new(),
             lineage_elders: HashMap::default(),

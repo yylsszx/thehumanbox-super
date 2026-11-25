@@ -26,6 +26,10 @@ impl Simulation {
             .is_multiple_of(500)
             .then(|| SpatialIndex::build(&self.organisms, 8));
         crate::sim::civ_tick::tick_civ(self, civ_spatial.as_ref());
+        // The multi-layer Q-learning hierarchy: squad clustering and epochs,
+        // tribe epochs. Runs after the civilisation pass so its view of the
+        // tribes (eras, unrest, battles) is this tick's.
+        self.tick_hierarchy();
         self.tick_evening_gatherings();
         self.tick_school_places();
 

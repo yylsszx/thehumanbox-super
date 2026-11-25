@@ -45,7 +45,16 @@ impl Simulation {
             .count();
         if crowding > 2 {
             let excess = (crowding - 2) as f32;
-            reward -= 0.006 * excess * excess;
+            // A squad under a Gather intent forgives half the crush: the
+            // middle layer judged the area dangerous and called the band in.
+            let gather_softening = if self.tick_count < self.organisms[idx].squad_intent_until
+                && self.organisms[idx].squad_intent == crate::sim::hierarchy::SquadIntent::Gather
+            {
+                0.5
+            } else {
+                1.0
+            };
+            reward -= 0.006 * excess * excess * gather_softening;
         }
 
         if self.organisms[idx].infection < 0.10 && self.organisms[idx].health > 0.4 {
@@ -188,6 +197,21 @@ impl Simulation {
         if let Some((lineage_id, strategy, bonus)) = aligned_strategy {
             reward += bonus;
             self.record_strategy_progress(&lineage_id, &strategy);
+        }
+
+        // The hierarchy's slice of the shaped reward: the tribe's baseline
+        // and posture, the squad's intent shaping. Then obedience is noted
+        // for the squad's epoch-end backpropagation.
+        reward += self.hierarchy_member_shaping(lineage.as_str(), idx, action, ox, oy);
+        if self.tick_count < self.organisms[idx].squad_intent_until {
+            let aligned = crate::sim::hierarchy::MacroIntent::of_action(action)
+                .is_some_and(|mi| Some(mi) == self.organisms[idx].squad_intent.macro_intent())
+                || (self.organisms[idx].squad_intent == crate::sim::hierarchy::SquadIntent::Migrate
+                    && action <= 7);
+            if aligned {
+                let o = &mut self.organisms[idx];
+                o.squad_obeyed = o.squad_obeyed.saturating_add(1);
+            }
         }
 
         f.reward = reward;

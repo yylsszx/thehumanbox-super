@@ -1,5 +1,5 @@
-use super::*;
 use super::neuro::{self, Stance};
+use super::*;
 pub struct BattleInstitutions<'a> {
     pub lineage_eras: &'a HashMap<crate::intern::Sym, Era>,
     pub governments: &'a HashMap<String, Government>,
@@ -64,15 +64,16 @@ const ROUT_FEAR: f32 = 0.8;
 
 /// Formation cohesion per fighter: how many same-side mates stand within
 /// `FORMATION_RADIUS` (capped at `COHESION_CAP`).
-pub(super) fn formation_cohesion(here: &[usize], organisms: &[crate::organism::organism::Organism]) -> Vec<f32> {
+pub(super) fn formation_cohesion(
+    here: &[usize],
+    organisms: &[crate::organism::organism::Organism],
+) -> Vec<f32> {
     here.iter()
         .map(|&i| {
             let (x, y) = (organisms[i].x, organisms[i].y);
             here.iter()
                 .filter(|&&j| j != i)
-                .filter(|&&j| {
-                    (organisms[j].x - x).abs() + (organisms[j].y - y).abs() <= FORMATION_RADIUS
-                })
+                .filter(|&&j| (organisms[j].x - x).abs() + (organisms[j].y - y).abs() <= FORMATION_RADIUS)
                 .count() as f32
         })
         .map(|c| c.min(COHESION_CAP))
@@ -82,9 +83,7 @@ pub(super) fn formation_cohesion(here: &[usize], organisms: &[crate::organism::o
 /// The loss fraction at which a side's morale breaks: stiffer lines (in
 /// formation) and later eras take more losses before they run.
 pub(super) fn morale_break_threshold(avg_cohesion: f32, era: Era) -> f32 {
-    MORALE_BREAK_BASE
-        + avg_cohesion * MORALE_COHESION_STIFFEN
-        + (era as u8 as f32) * MORALE_ERA_STIFFEN
+    MORALE_BREAK_BASE + avg_cohesion * MORALE_COHESION_STIFFEN + (era as u8 as f32) * MORALE_ERA_STIFFEN
 }
 
 /// A fighter just wounded below `WITHDRAW_AT` in this exchange may leave the
@@ -412,10 +411,7 @@ pub fn tick_battles(
             d_dmg = (d_dmg + g_d.dmg) * (1.0 - g_a.mitigation);
             // Formation: each shoulder-to-shoulder mate strengthens the
             // line's strike and covers it against the counter.
-            let coh_a = cohesion_att
-                .get(k)
-                .copied()
-                .unwrap_or(0.0);
+            let coh_a = cohesion_att.get(k).copied().unwrap_or(0.0);
             let coh_d = cohesion_def
                 .get(k % def_here.len().max(1))
                 .copied()
@@ -495,11 +491,7 @@ pub fn tick_battles(
                 && a_loss >= morale_break_threshold(avg_cohesion_att, att_era)
             {
                 battle.routed_a = true;
-                let name = battle
-                    .attackers
-                    .first()
-                    .map(String::as_str)
-                    .unwrap_or("A tribe");
+                let name = battle.attackers.first().map(String::as_str).unwrap_or("A tribe");
                 push_event(
                     events,
                     tick,
@@ -518,11 +510,7 @@ pub fn tick_battles(
                 && d_loss >= morale_break_threshold(avg_cohesion_def, def_era)
             {
                 battle.routed_d = true;
-                let name = battle
-                    .defenders
-                    .first()
-                    .map(String::as_str)
-                    .unwrap_or("A tribe");
+                let name = battle.defenders.first().map(String::as_str).unwrap_or("A tribe");
                 push_event(
                     events,
                     tick,

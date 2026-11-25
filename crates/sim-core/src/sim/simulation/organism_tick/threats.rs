@@ -71,6 +71,7 @@ impl Simulation {
             }
         }
 
+        let perception_was_precomputed = f.pre_perception.is_some();
         let perception = match f.pre_perception.take() {
             Some(perception) => perception,
             None => self.organisms[idx].perceive_into(
@@ -82,6 +83,27 @@ impl Simulation {
                 perception_buf,
             ),
         };
+        // The hierarchy's vector state. When the perception came in
+        // pre-computed the nearby buffer is stale, so query the population
+        // index directly (the animal scan above is done with `spatial_buf`).
+        let threat_dist = wolf_threat
+            .map(|(d, _, _)| d)
+            .or_else(|| summoned_threat.map(|(d, _, _)| d));
+        {
+            let nearby: &[usize] = if perception_was_precomputed {
+                spatial.query_into(ox as i32, oy as i32, 8, spatial_buf);
+                spatial_buf
+            } else {
+                perception_buf
+            };
+            let state_vector = self.organisms[idx].compute_state_vector(
+                &self.organisms,
+                nearby,
+                threat_dist,
+                self.tick_count,
+            );
+            self.organisms[idx].state_vector = state_vector;
+        }
         let prior_lineage = self.organisms[idx].lineage_id;
         self.validate_or_assign_wander_target_indexed(idx, spatial, lineage_members);
         if self.organisms[idx].lineage_id != prior_lineage {

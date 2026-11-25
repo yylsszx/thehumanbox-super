@@ -102,6 +102,28 @@ pub struct Organism {
     pub directive: String,
     pub directive_until: u64,
 
+    // --- The multi-layer Q-learning hierarchy (see `sim::hierarchy`) ---
+    /// Bottom layer: linear macro-intent Q over the vector state. Saved.
+    pub linear_q: crate::sim::hierarchy::LinearQ,
+    /// This tick's vector state, set during sensing. Runtime only.
+    pub state_vector: crate::sim::hierarchy::StateVector,
+    /// The squad's dispatched intent and when it lapses. Runtime only,
+    /// refreshed every squad rebuild / epoch.
+    pub squad_intent: crate::sim::hierarchy::SquadIntent,
+    pub squad_intent_until: u64,
+    /// The squad's centroid / target, cached for the choice and bonds
+    /// phases. Runtime only.
+    pub squad_centroid: (f32, f32),
+    pub squad_target: (i32, i32),
+    /// How strongly the squad's intent shapes rewards, `0..=1`. Runtime only.
+    pub squad_confidence: f32,
+    /// Ticks this epoch the member acted along the dispatched intent.
+    /// Runtime only; read and reset at squad epochs.
+    pub squad_obeyed: u32,
+    /// The top layer's attack-weight coefficient (the "宣战" multiplier).
+    /// Runtime only, broadcast at tribe epochs.
+    pub tribe_attack_mult: f32,
+
     pub loneliness: f32,
     pub boredom: f32,
     pub fear_level: f32,
@@ -277,6 +299,15 @@ impl Organism {
             last_experiment_tick: 0,
             directive: String::new(),
             directive_until: 0,
+            linear_q: crate::sim::hierarchy::LinearQ::new(),
+            state_vector: crate::sim::hierarchy::StateVector::default(),
+            squad_intent: crate::sim::hierarchy::SquadIntent::default(),
+            squad_intent_until: 0,
+            squad_centroid: (x, y),
+            squad_target: (x as i32, y as i32),
+            squad_confidence: 0.0,
+            squad_obeyed: 0,
+            tribe_attack_mult: 1.0,
             loneliness: 0.0,
             boredom: 0.0,
             fear_level: 0.0,

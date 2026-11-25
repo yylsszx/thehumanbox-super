@@ -1,8 +1,8 @@
 pub mod agriculture;
 pub mod buildings;
+pub mod emergent;
 pub mod language_tech;
 pub mod medicine;
-pub mod emergent;
 pub mod tech_progress;
 pub mod tech_tree;
 pub mod tools;

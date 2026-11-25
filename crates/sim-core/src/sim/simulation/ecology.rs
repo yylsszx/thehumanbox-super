@@ -416,9 +416,7 @@ impl Simulation {
                 .organisms
                 .iter()
                 .filter(|o| {
-                    o.alive
-                        && (o.x - x as f32).abs() + (o.y - y as f32).abs()
-                            <= MIGRATION_PEOPLE_RADIUS
+                    o.alive && (o.x - x as f32).abs() + (o.y - y as f32).abs() <= MIGRATION_PEOPLE_RADIUS
                 })
                 .count();
             if people_near > MIGRATION_PEOPLE_MAX {

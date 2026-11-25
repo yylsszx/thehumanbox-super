@@ -1429,7 +1429,11 @@ impl Organism {
                 if !workable(a) {
                     return f32::NEG_INFINITY;
                 }
-                learned + directed + preferred_action_boost(active_wander_action, a) + self.skills.pull(a)
+                learned
+                    + directed
+                    + preferred_action_boost(active_wander_action, a)
+                    + self.skills.pull(a)
+                    + self.hierarchy_choice_boost(a, tick)
             };
             let mut best_avail: Option<usize> = None;
             let mut best_score = f32::NEG_INFINITY;

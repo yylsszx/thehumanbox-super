@@ -509,11 +509,7 @@ impl Simulation {
     /// the real thing. A trophy is not copied twice, and the aggregate caps
     /// (`emergent_research_mul` and its siblings) keep the arms race bounded.
     pub(crate) fn diffuse_techs(&mut self, winner: &str, loser: &str) {
-        let count = self
-            .emergent_techs
-            .iter()
-            .filter(|t| t.lineage == loser)
-            .count();
+        let count = self.emergent_techs.iter().filter(|t| t.lineage == loser).count();
         if count == 0 {
             return;
         }
@@ -539,12 +535,7 @@ impl Simulation {
         {
             return;
         }
-        let gen = self
-            .emergent_techs
-            .iter()
-            .filter(|t| t.lineage == winner)
-            .count() as u32
-            + 1;
+        let gen = self.emergent_techs.iter().filter(|t| t.lineage == winner).count() as u32 + 1;
         if gen > 24 {
             // No spare slots for captured knowledge.
             return;
@@ -565,13 +556,7 @@ impl Simulation {
             self.tribe_name(loser)
         );
         self.emergent_techs.push(t);
-        crate::sim::world_events::push_event(
-            &mut self.events,
-            self.tick_count,
-            "milestone",
-            "world",
-            &line,
-        );
+        crate::sim::world_events::push_event(&mut self.events, self.tick_count, "milestone", "world", &line);
         self.headlines.push_back((self.tick_count, line));
         while self.headlines.len() > 80 {
             self.headlines.pop_front();

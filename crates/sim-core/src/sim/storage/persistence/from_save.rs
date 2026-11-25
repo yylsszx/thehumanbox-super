@@ -216,6 +216,7 @@ impl Simulation {
             choosing_tribes: None,
             focus_points: state.focus_points,
             lineage_strategies: state.lineage_strategies,
+            hierarchy: state.hierarchy,
             lineage_strategy_objectives: state.lineage_strategy_objectives,
             lineage_strategy_history: state.lineage_strategy_history.into_iter().collect(),
             lineage_elders: state.lineage_elders,

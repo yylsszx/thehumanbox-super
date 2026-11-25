@@ -113,6 +113,23 @@ Action ids live in a space of 6144 (`ACTION_ID_SPACE`). Ids below 5930 are
 dispatched by id range in `actions/mod.rs` and gated by the band tables; ids
 5930..=6143 are *registered* actions that carry their own definition.
 
+## The learning hierarchy
+
+On top of the per-organism learner sits a three-layer hierarchy
+(`sim/hierarchy/`, detailed in [SUPER_UPGRADE.md](SUPER_UPGRADE.md)):
+
+| Layer | Entity | Owns | Reaches down by |
+|---|---|---|---|
+| bottom | one organism | tabular Q (unchanged) + a linear macro-intent Q over a vector state `[hunger, thirst, enemy_prox, ally_count, kin_density, leader, cohesion, threat]` | — |
+| middle | kin cluster ("squad", rebuilt every 30 ticks) | tiny Q over (food × size × threat × rival) × (Gather, Disperse, Migrate), epochs of 120 ticks | reward shaping of members, scaled by the brain's confidence |
+| top | lineage ("tribe") | tiny Q over (population × tech × war × stress) × (War, Ally, Missionary, Research), epochs of 600 ticks | the whole tribe's reward baseline + a Fight-weight coefficient |
+
+Nothing above the bottom layer chooses a bottom-layer action: upper layers
+only tilt rewards (and a small choice boost) — the design keeps every person
+an autonomous learner. Obedience that helped the band is paid back in morale
+at squad epochs. The hierarchy persists in the save and follows the same
+reproducibility rules (fixed iteration order, hash-derived rolls).
+
 ## The world view
 
 The map in `apps/web/src/game/render/` runs on the [xipjs](https://github.com/1homsi/xip)

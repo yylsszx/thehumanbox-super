@@ -18,11 +18,11 @@ use rand::RngExt;
 mod arts;
 mod construction;
 mod disease;
-mod gear;
 #[cfg(test)]
 mod disease_tests;
 #[cfg(test)]
 mod faith_tests;
+mod gear;
 mod homes;
 mod knowledge;
 mod milestones;
@@ -39,7 +39,6 @@ mod watches;
 
 use arts::*;
 use construction::*;
-use gear::*;
 pub(crate) use construction::{
     construction_capped, construction_site_is_valid, lineage_can_afford_construction,
     reconcile_operational_infrastructure, try_start_building_at, wants_longhouse, wants_manor,
@@ -47,6 +46,7 @@ pub(crate) use construction::{
 #[cfg(test)]
 pub(crate) use disease::tick_disease_spread_for_test;
 use disease::*;
+use gear::*;
 use homes::*;
 use knowledge::*;
 use milestones::*;

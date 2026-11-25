@@ -256,8 +256,11 @@ impl Simulation {
             // Livestock in pens are raided by a summoned pack out at night,
             // and by a starving wild raider the ecology pass has sent at
             // the pens — the rails keep out a fed wolf, not a desperate one.
-            let raid: &[(usize, f32, f32, AnimalKind)] =
-                if pred.hunting || pred.raiding { &livestock } else { &[] };
+            let raid: &[(usize, f32, f32, AnimalKind)] = if pred.hunting || pred.raiding {
+                &livestock
+            } else {
+                &[]
+            };
             let quarry = pred.pack_quarry.and_then(|(qid, _, _)| {
                 prey_positions
                     .iter()
@@ -1107,12 +1110,8 @@ impl Simulation {
                     .unwrap_or(0);
                 let _loot_roll = self.rng.random::<f32>();
                 if _loot_roll < 0.04 {
-                    if let Some(def) =
-                        crate::organism::items::roll_item(&mut self.rng, tier)
-                    {
-                        if crate::organism::items::equip(&mut self.organisms[oi].gear, def)
-                            .is_some()
-                        {
+                    if let Some(def) = crate::organism::items::roll_item(&mut self.rng, tier) {
+                        if crate::organism::items::equip(&mut self.organisms[oi].gear, def).is_some() {
                             let name = self.organisms[oi].name.clone();
                             push_event(
                                 &mut self.events,

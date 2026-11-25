@@ -1,6 +1,6 @@
 use crate::sim::simulation::Simulation;
-use rand::RngExt;
 use crate::sim::world_events::push_event;
+use rand::RngExt;
 
 impl Simulation {
     pub(crate) fn do_raid(&mut self, idx: usize, near: &[usize], ambush: bool) -> f32 {

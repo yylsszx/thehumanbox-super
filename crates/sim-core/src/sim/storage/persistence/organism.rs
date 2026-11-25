@@ -93,6 +93,9 @@ pub(crate) struct OrgSave {
     pub(super) directive: String,
     #[serde(default)]
     pub(super) directive_until: u64,
+    /// The hierarchy's linear macro-intent Q weights (bottom layer).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) linear_q: Vec<f32>,
     #[serde(default)]
     pub(super) journey: Option<crate::organism::organism::Journey>,
     #[serde(default)]
@@ -331,6 +334,7 @@ pub(super) fn org_to_save(o: &Organism) -> OrgSave {
         sleep_debt: o.sleep_debt,
         directive: o.directive.clone(),
         directive_until: o.directive_until,
+        linear_q: o.linear_q.w.clone(),
         journey: o.journey.clone(),
         last_groomed: o.last_groomed,
         last_fed_kin: o.last_fed_kin,
@@ -481,6 +485,7 @@ pub(super) fn org_from_save(s: OrgSave, save_version: u32) -> Organism {
     o.sleep_debt = s.sleep_debt;
     o.directive = s.directive;
     o.directive_until = s.directive_until;
+    o.linear_q = crate::sim::hierarchy::LinearQ::from_vec(s.linear_q);
     o.journey = s.journey;
     o.last_groomed = s.last_groomed;
     o.last_fed_kin = s.last_fed_kin;

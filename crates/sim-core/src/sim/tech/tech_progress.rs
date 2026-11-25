@@ -156,7 +156,13 @@ pub fn tick_tech_progress(
             };
             // Invented techs multiply the whole tribe's research rate.
             let emergent = emergent_research.get(lid.as_str()).copied().unwrap_or(1.0);
-            let p = (BASE_RATE * node.discovery_rate * pop_factor * profile.capacity * evidence * boost * emergent)
+            let p = (BASE_RATE
+                * node.discovery_rate
+                * pop_factor
+                * profile.capacity
+                * evidence
+                * boost
+                * emergent)
                 .min(0.85);
             if rng.random::<f32>() >= p {
                 continue;
