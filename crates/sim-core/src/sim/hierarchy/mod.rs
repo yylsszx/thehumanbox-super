@@ -558,13 +558,14 @@ impl crate::sim::simulation::Simulation {
             e.1 += o.energy;
         }
         let mut order: Vec<(String, TribeStats)> = Vec::new();
-        for (lid, (population, energy_sum)) in acc {
+        for (lid, (population, energy_sum)) in acc.iter() {
+            let (population, energy_sum) = (*population, *energy_sum);
             if population < 4 {
                 continue;
             }
             let era = self
                 .lineage_eras
-                .get(&lid)
+                .get(lid.as_str())
                 .copied()
                 .unwrap_or(crate::sim::civ::progress::eras::LADDER[0]);
             let era_index = crate::sim::civ::progress::eras::LADDER
@@ -603,8 +604,14 @@ impl crate::sim::simulation::Simulation {
             let stressed = stats.avg_energy < 0.4;
             let state = TribeBrain::state_index(&stats, stressed);
             let brain = self.hierarchy.tribes.entry(lineage.clone()).or_default();
+            // Count the epoch just finished: a War posture over an actual war
+            // accrues weariness, which the reward below must feel.
+            if brain.action == TribeAction::War && stats.at_war {
+                brain.war_epochs = brain.war_epochs.saturating_add(1);
+            }
             if let Some(last_state) = brain.last_state {
-                let reward = tribe::tribe_epoch_reward(&brain.epoch_stats, &stats);
+                let reward = tribe::tribe_epoch_reward(&brain.epoch_stats, &stats)
+                    - tribe::war_weariness(brain.war_epochs, brain.action, stats.at_war);
                 let last_action = brain.action;
                 brain.learn(last_state, last_action, reward, state);
             }
@@ -616,7 +623,27 @@ impl crate::sim::simulation::Simulation {
             brain.epoch_stats = stats;
             brain.last_state = Some(state);
             brain.epochs += 1;
+            // A posture change (or a peace) resets the war-weariness clock;
+            // staying at war keeps it running.
+            if action != TribeAction::War || !stats.at_war {
+                brain.war_epochs = 0;
+            }
             let policy = TribePolicy::of(action);
+            // The war-weariness coupling also reaches the outside: the attack
+            // weight broadcast fades as consecutive war epochs accrue.
+            let attack_mult = if action == TribeAction::War {
+                tribe::effective_attack_mult(brain.war_epochs)
+            } else {
+                policy.attack_mult
+            };
+            // The Ally posture warms attitudes toward every living foreign
+            // lineage (sorted keys from the census above), making friendly
+            // diplomacy actually reachable.
+            let others: Vec<crate::intern::Sym> = acc
+                .keys()
+                .copied()
+                .filter(|&k| k.as_str() != lineage.as_str())
+                .collect();
 
             let mut members = 0usize;
             for o in self
@@ -624,7 +651,8 @@ impl crate::sim::simulation::Simulation {
                 .iter_mut()
                 .filter(|o| o.alive && o.lineage_id.as_str() == lineage.as_str())
             {
-                o.tribe_attack_mult = policy.attack_mult;
+                o.tribe_attack_mult = attack_mult;
+                tribe::drift_attitudes_for_posture(o, &others, action);
                 if action == TribeAction::Missionary {
                     o.piety = (o.piety + 0.01).min(1.0);
                 }

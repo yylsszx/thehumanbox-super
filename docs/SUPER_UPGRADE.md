@@ -94,8 +94,9 @@ per organism); old saves load with defaults and re-learn.
   - [x] deeper credit assignment (per-action obedience ledger instead of a
         counter; propagate squad rewards into the tabular Q of obedient
         members, not just morale) — done in round 2
-  - [ ] tribe postures that actually steer diplomacy (attitude drift for
-        Ally, war-weariness coupling for War) instead of reward-shaping only
+  - [x] tribe postures that actually steer diplomacy (attitude drift for
+        Ally, war-weariness coupling for War) instead of reward-shaping
+        only — done in round 3
   - [ ] expose squad intents and tribe postures on the wire frame / UI
         (thought bubbles, tribe cards, a "posture" badge)
   - [ ] macro-intent gating: let the dispatched intent filter the
@@ -127,3 +128,22 @@ per organism); old saves load with defaults and re-learn.
   The long dispersal integration test exposed a latent overflow (u8 tool
   counter in `salt_meat`), fixed with `saturating_add`; the rest of the
   1370-test suite is green.
+
+- **Round 3** — tribe postures now steer actual diplomacy, not just rewards.
+  - **Ally → attitude drift**: an `Ally` epoch warms every member's attitude
+    toward every living foreign lineage by `ALLY_DRIFT` (0.05/epoch,
+    BTreeMap entries, own lineage excluded, capped at 1.0). `form_alliance`
+    needs attitude > 0.2, so four Ally epochs make forging alliances,
+    envoys, trade and truces genuinely reachable — the posture changes what
+    diplomacy is possible, not merely what it pays.
+  - **War → war-weariness coupling**: `TribeBrain.war_epochs` counts
+    consecutive epochs spent actually fighting under a `War` posture
+    (posturing without a war is free). It couples two ways:
+    the epoch reward loses `war_weariness` (0.02/epoch, capped 0.30) so the
+    Q table can learn to turn away from an endless war; and the broadcast
+    attack weight fades `1.6 → 1.48 → …` (`effective_attack_mult`), so a
+    long war softens the whole tribe's fight bias instead of switching it
+    off. Peace or a posture change resets the clock.
+  - Save format: one new `#[serde(default)]` field (`war_epochs`); old
+    saves load and re-learn. 5 new tests (32 hierarchy total); fmt + clippy
+    clean.

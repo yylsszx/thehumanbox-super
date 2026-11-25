@@ -143,6 +143,112 @@ fn squad_epoch_learns_and_backpropagates() {
 }
 
 #[test]
+fn ally_posture_warms_attitudes_toward_foreign_lineages() {
+    let mut sim = Simulation::new(0xA117);
+    let lineage = force_cluster(&mut sim, 5);
+    // A living foreign lineage to be warm toward.
+    let foreign = {
+        let idx = sim
+            .organisms
+            .iter()
+            .position(|o| o.alive && o.lineage_id.as_str() != lineage.as_str())
+            .expect("the world must hold more than one lineage");
+        sim.organisms[idx].lineage_id
+    };
+    // Prime the brain so the epoch's exploit always picks Ally (index 1).
+    let mut brain = TribeBrain::default();
+    for row in brain.q.iter_mut() {
+        *row = [-1.0, 10.0, -1.0, -1.0];
+    }
+    sim.hierarchy.tribes.insert(lineage.clone(), brain);
+    // Find a tick whose deterministic roll clears the exploration band.
+    let tick = (1..200u64)
+        .map(|k| k * tribe::TRIBE_EPOCH)
+        .find(|&t| hierarchy_roll(t, 0x7AB1, &lineage) >= 0.25)
+        .expect("a deterministically exploitable tick exists");
+    sim.tick_count = tick;
+    sim.hierarchy_tribe_epoch();
+
+    for o in sim
+        .organisms
+        .iter()
+        .filter(|o| o.alive && o.lineage_id.as_str() == lineage.as_str())
+    {
+        let att = o.attitude_toward(foreign.as_str());
+        assert!(
+            (att - tribe::ALLY_DRIFT).abs() < 1e-6,
+            "one Ally epoch warms the foreigner by ALLY_DRIFT, got {att}"
+        );
+        assert!(
+            (o.tribe_attack_mult - 1.0).abs() < 1e-6,
+            "Ally does not arm anyone"
+        );
+    }
+}
+
+#[test]
+fn wearied_wars_soften_the_broadcast_attack_weight() {
+    let mut sim = Simulation::new(0x0FA3);
+    let lineage = force_cluster(&mut sim, 5);
+    sim.battles.push(crate::sim::warfare::Battle {
+        id: "b1".into(),
+        attackers: vec![lineage.clone()],
+        defenders: vec!["Foe".into()],
+        attacker_orgs: vec![],
+        defender_orgs: vec![],
+        scale: crate::sim::warfare::BattleScale::Skirmish,
+        location: (5, 5),
+        started_tick: 0,
+        ended_tick: None,
+        casualties_a: 0,
+        casualties_d: 0,
+        outcome: None,
+        initial_a: 2,
+        initial_d: 2,
+        routed_a: false,
+        routed_d: false,
+    });
+    // Prime the brain so the epoch's exploit always picks War (index 0).
+    let mut brain = TribeBrain::default();
+    for row in brain.q.iter_mut() {
+        *row = [10.0, -1.0, -1.0, -1.0];
+    }
+    sim.hierarchy.tribes.insert(lineage.clone(), brain);
+    let tick = (1..200u64)
+        .map(|k| k * tribe::TRIBE_EPOCH)
+        .find(|&t| hierarchy_roll(t, 0x7AB1, &lineage) >= 0.05)
+        .expect("a deterministically exploitable tick exists");
+    sim.tick_count = tick;
+    sim.hierarchy_tribe_epoch();
+    let first = sim
+        .organisms
+        .iter()
+        .find(|o| o.alive && o.lineage_id.as_str() == lineage.as_str())
+        .unwrap()
+        .tribe_attack_mult;
+    assert!(
+        (first - tribe::effective_attack_mult(0)).abs() < 1e-6,
+        "a fresh war arms at full weight"
+    );
+
+    sim.tick_count = tick + tribe::TRIBE_EPOCH;
+    sim.hierarchy_tribe_epoch();
+    let second = sim
+        .organisms
+        .iter()
+        .find(|o| o.alive && o.lineage_id.as_str() == lineage.as_str())
+        .unwrap()
+        .tribe_attack_mult;
+    assert!(
+        second < first,
+        "the same war next epoch weighs less: {first} -> {second}"
+    );
+    assert!((second - tribe::effective_attack_mult(1)).abs() < 1e-5);
+    let brain = sim.hierarchy.tribes.get(&lineage).unwrap();
+    assert_eq!(brain.war_epochs, 1, "one war epoch has been counted");
+}
+
+#[test]
 fn tribe_epoch_broadcasts_a_posture() {
     let mut sim = Simulation::new(0x7A1E);
     let lineage = force_cluster(&mut sim, 5);
