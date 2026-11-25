@@ -91,14 +91,86 @@ per organism); old saves load with defaults and re-learn.
   epochs, dispatch and reward shaping; tribe postures with baseline and
   attack weight; obedience backpropagation; persistence; 23 new tests.
   Untouched for future rounds:
-  - [ ] deeper credit assignment (per-action obedience ledger instead of a
+  - [x] deeper credit assignment (per-action obedience ledger instead of a
         counter; propagate squad rewards into the tabular Q of obedient
-        members, not just morale)
-  - [ ] tribe postures that actually steer diplomacy (attitude drift for
-        Ally, war-weariness coupling for War) instead of reward-shaping only
-  - [ ] expose squad intents and tribe postures on the wire frame / UI
-        (thought bubbles, tribe cards, a "posture" badge)
+        members, not just morale) — done in round 2
+  - [x] tribe postures that actually steer diplomacy (attitude drift for
+        Ally, war-weariness coupling for War) instead of reward-shaping
+        only — done in round 3
+  - [x] expose squad intents and tribe postures on the wire frame / UI
+        (thought bubbles, tribe cards, a "posture" badge) — done in round 4
   - [ ] macro-intent gating: let the dispatched intent filter the
         exploration pool, not just bias exploitation
   - [ ] inherit linear Q weights to children (currently re-learned)
   - [ ] tune epoch lengths and shaping scales against `headless` sweeps
+
+- **Round 2** — deeper credit assignment. The obedience counter became a
+  **per-action ledger** on every member: while a squad intent is in force,
+  each action books itself into its macro-intent slot
+  (`ledger_slot_of_action` — Forage / Drink / Flee / Fight / Follow, plus a
+  trailing slot for plain steps, the currency of `Migrate`). The dispatched
+  intent's slot counts exactly what the old counter counted; the other
+  slots now record defiance and context for free. At the epoch boundary, a
+  band that fared well pays its obedient members twice:
+  - the round-1 morale payback (hope / joy / comfort), unchanged;
+  - new: a **tabular backpropagation** — `collect_squad_payback` walks the
+    member's learning trace (newest first, deduplicated, capped at 8), and
+    pulls the Q rows of the entries that served the dispatched intent
+    toward the squad's verdict: `credit = reward × confidence scale`,
+    clamped to 0.05, applied as a convex mix (α = 0.06) so repeated epochs
+    converge instead of creeping, with the coarse generalisation row
+    sharing a quarter share, exactly like the tick's own TD step.
+  Defiance books into its own slots and is credited nowhere. The credit is
+  gated on the ledger vouching (`OBEY_MIN = 8` obeying ticks) and nothing
+  above the bottom layer ever picks a bottom-layer action — the squad only
+  writes into the table its members learn from. Runtime-only (no save
+  format change); 4 new tests, 27 hierarchy tests total; fmt + clippy clean.
+  The long dispersal integration test exposed a latent overflow (u8 tool
+  counter in `salt_meat`), fixed with `saturating_add`; the rest of the
+  1370-test suite is green.
+
+- **Round 3** — tribe postures now steer actual diplomacy, not just rewards.
+  - **Ally → attitude drift**: an `Ally` epoch warms every member's attitude
+    toward every living foreign lineage by `ALLY_DRIFT` (0.05/epoch,
+    BTreeMap entries, own lineage excluded, capped at 1.0). `form_alliance`
+    needs attitude > 0.2, so four Ally epochs make forging alliances,
+    envoys, trade and truces genuinely reachable — the posture changes what
+    diplomacy is possible, not merely what it pays.
+  - **War → war-weariness coupling**: `TribeBrain.war_epochs` counts
+    consecutive epochs spent actually fighting under a `War` posture
+    (posturing without a war is free). It couples two ways:
+    the epoch reward loses `war_weariness` (0.02/epoch, capped 0.30) so the
+    Q table can learn to turn away from an endless war; and the broadcast
+    attack weight fades `1.6 → 1.48 → …` (`effective_attack_mult`), so a
+    long war softens the whole tribe's fight bias instead of switching it
+    off. Peace or a posture change resets the clock.
+  - Save format: one new `#[serde(default)]` field (`war_epochs`); old
+    saves load and re-learn. 5 new tests (32 hierarchy total); fmt + clippy
+    clean.
+- **Round 4** — the hierarchy is on the wire: clients can now *see* what the
+  middle and top layers are thinking, with zero simulation behaviour
+  changed and zero save-format changed.
+  - **Thought bubbles**: both dispatch sites (rebuild and epoch) now run the
+    dispatched intent through `Organism::think` — "gathering with the band",
+    "scattering to forage", "moving with the band" — so members visibly
+    carry their band's intent in the existing thought channel. `think`'s own
+    semantics do the right thing for free: urgent needs keep their bubble
+    (`is_need_thought`, now crate-test-visible, pins the contract that the
+    three bubble phrases never collide with the need list), re-choosing the
+    same intent dedupes, and `thought_dirty` ships it on the next hot delta.
+  - **Tribe posture badge**: a new cold-frame payload `tribe_posture` maps
+    lineage → `{posture, since, epochs, war_epochs, attack_mult}` straight
+    from each `TribeBrain`; `attack_mult` is the war-weariness-faded weight
+    the posture actually broadcasts (`effective_attack_mult`), 1.0 outside
+    `War` — the tribe card can badge and fade it.
+  - **Squad panel**: a companion cold-frame payload `squad_intents` maps
+    lineage → `[{id, intent, members, ids, confidence, target}]` from each
+    `SquadBrain`; `ids` carries alive members' organism ids so the client
+    badges members without a join, dead members (stale between rebuilds)
+    are skipped, and squads with nobody left are not listed. Both payloads
+    are sorted (lineage ids, squad ids) and read-only.
+  - Wire names are a contract: `SquadIntent::name` ("gather" / "disperse" /
+    "migrate") and `TribeAction::name` ("war" / "ally" / "missionary" /
+    "research") are lowercase, stable, and pinned by tests.
+  - No new save fields (the payloads read runtime + persisted state as it
+    is); 5 new tests (35 hierarchy total); fmt + clippy clean.
